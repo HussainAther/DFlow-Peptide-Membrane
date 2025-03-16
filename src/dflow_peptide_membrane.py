@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+import json
 from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
 
 class DFlowPeptideMembraneSim:
@@ -9,6 +11,7 @@ class DFlowPeptideMembraneSim:
         self.sequence_length = sequence_length
         self.peptides = self.generate_peptides()
         self.membrane_thickness = np.random.uniform(2.5, 3.5)
+        self.peptide_evolution_log = []
     
     def generate_peptides(self):
         """Use D-Flow to generate hybrid L-D peptides."""
@@ -23,11 +26,24 @@ class DFlowPeptideMembraneSim:
     
     def iterate_selection(self, cycles=100):
         """Simulate peptide selection over multiple evolutionary cycles."""
-        for _ in range(cycles):
+        for cycle in range(cycles):
             self.peptides = [p for p in self.peptides if self.check_stability(p)]
+            self.peptide_evolution_log.append({
+                "Cycle": cycle,
+                "Peptide_Count": len(self.peptides),
+                "Membrane_Thickness": self.membrane_thickness
+            })
             if len(self.peptides) < 5:  # Maintain genetic diversity
                 self.peptides += self.generate_peptides()
             self.membrane_thickness += np.random.uniform(-0.1, 0.1)  # Simulate feedback loop
+    
+    def save_logs(self):
+        """Save peptide evolution log and membrane thickness data."""
+        df = pd.DataFrame(self.peptide_evolution_log)
+        df.to_csv("data/peptide_evolution.csv", index=False)
+        
+        with open("data/membrane_thickness.json", "w") as f:
+            json.dump({"Membrane_Thickness": self.membrane_thickness}, f)
     
     def visualize_results(self):
         """Plot membrane thickness over time."""
@@ -43,6 +59,6 @@ class DFlowPeptideMembraneSim:
 if __name__ == "__main__":
     sim = DFlowPeptideMembraneSim()
     sim.iterate_selection(cycles=500)
+    sim.save_logs()
     sim.visualize_results()
-
 
