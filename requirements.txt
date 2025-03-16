@@ -1,0 +1,6 @@
+# requirements.txt
+numpy
+matplotlib
+torch
+dflow  # Assumes D-Flow is an installable module
+
