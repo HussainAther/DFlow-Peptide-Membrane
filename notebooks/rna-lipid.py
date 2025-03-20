@@ -5,6 +5,10 @@ import openmm.app as app
 import openmm.unit as unit
 from openmm import LangevinIntegrator
 from openmm.app import PDBFile, ForceField, Simulation
+import biopython
+from biopython.Seq import Seq
+from biopython.SeqRecord import SeqRecord
+from biopython.SeqIO import write
 
 # Load the RNA and Lipid Membrane System
 pdb = PDBFile("rna_lipid_system.pdb")
@@ -33,6 +37,12 @@ equilibration_steps = 100000  # 100 ps
 print("Running equilibration...")
 simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
 simulation.step(equilibration_steps)
+
+# Generate RNA conformational ensemble
+rna_sequence = "AUGCGUAGCUAG"  # Example RNA sequence
+rna_record = SeqRecord(Seq(rna_sequence), id="RNA1", description="RNA sequence for simulation")
+write(rna_record, "rna_sequence.fasta", "fasta")
+print("RNA sequence written to fasta file.")
 
 # Run Production MD
 production_steps = 500000  # 500 ps
