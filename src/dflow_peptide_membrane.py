@@ -1,9 +1,32 @@
+import argparse
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import json
 from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--init", type=str, default="default", choices=["default", "space"],
+                    help="Initialization mode: 'default' for random L-peptides, 'space' for prebiotic racemic amino acids")
+args = parser.parse_args()
+
+space_presets = {
+    "carbonaceous_chondrite": {
+        'A': 0.12, 'D': 0.08, 'E': 0.07, 'G': 0.15, 'V': 0.10,
+        'L': 0.07, 'I': 0.05, 'P': 0.05, 'S': 0.08, 'T': 0.07,
+        'others': 0.16  # rare or less detected ones
+    },
+    "irradiated_meteorite": {
+        # Bias toward UV-resistant or small, stable amino acids
+        'G': 0.20, 'A': 0.18, 'V': 0.14, 'D': 0.10, 'others': 0.38
+    },
+    "vesicle_shadowed_pool": {
+        # Favors hydrophobic & amphipathic peptides
+        'V': 0.18, 'L': 0.16, 'A': 0.14, 'G': 0.12, 'P': 0.10, 'others': 0.30
+    }
+}
+
 
 class DFlowPeptideMembraneSim:
     def __init__(self, num_peptides=100, sequence_length=15):
