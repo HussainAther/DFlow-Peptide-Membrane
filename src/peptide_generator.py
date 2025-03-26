@@ -1,4 +1,5 @@
 import torch
+import random
 import numpy as np
 from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
 
@@ -20,6 +21,19 @@ class PeptideGenerator:
             if np.random.rand() < mutation_rate:
                 peptide_list[i] = np.random.choice(["L", "R", "0"])  # Random replacement
         return "".join(peptide_list)
+
+    def generate_space_peptide(length=80, preset="carbonaceous_chondrite"):
+        aa_probs = space_presets[preset]
+        aa_pool = list(aa_probs.keys())
+        weights = [aa_probs[aa] for aa in aa_pool]
+
+        peptide = []
+        for _ in range(length):
+            aa = random.choices(aa_pool, weights=weights, k=1)[0]
+            chirality = random.choice(["L", "D"])  # racemic
+            peptide.append(f"{chirality}-{aa}")
+        return " ".join(peptide)
+
     
     def recombine_peptides(self, peptide1, peptide2):
         """Perform crossover between two peptide sequences to simulate recombination."""
