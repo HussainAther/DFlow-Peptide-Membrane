@@ -11,8 +11,7 @@ class UVPeptideGenerator:
                 'A': 0.12, 'D': 0.08, 'E': 0.07, 'G': 0.15, 'V': 0.10,
                 'L': 0.07, 'I': 0.05, 'P': 0.05, 'S': 0.08, 'T': 0.07,
                 'F': 0.03, 'Y': 0.02, 'W': 0.02, 'others': 0.09
-            },
-            # Add more presets as needed
+            }
         }
         self.d_aromatics = {"D-F", "D-Y", "D-W"}
 
@@ -33,14 +32,16 @@ class UVPeptideGenerator:
             if self.count_d_aromatics(peptide) <= self.max_d_aromatics:
                 return peptide
 
-    def generate_library(self, n=1000, output_file="uv_filtered_peptides.txt"):
+    def generate_library(self, n=1000):
+        return [self.generate_single_peptide() for _ in range(n)]
+
+    def save_library_to_file(self, peptides, output_file="uv_filtered_peptides.txt"):
         with open(output_file, "w") as f:
-            for i in range(n):
-                peptide = self.generate_single_peptide()
+            for i, peptide in enumerate(peptides):
                 f.write(f">peptide_{i+1}\n{' '.join(peptide)}\n")
-        print(f"[✔] Generated {n} UV-filtered peptides → {output_file}")
+        print(f"[✔] Saved {len(peptides)} peptides → {output_file}")
 
-
+# Optional CLI support
 def main():
     parser = argparse.ArgumentParser(description="Generate UV-filtered LD peptide libraries.")
     parser.add_argument("--num", type=int, default=1000, help="Number of peptides to generate")
@@ -56,7 +57,9 @@ def main():
         max_d_aromatics=args.max_d_aromatics,
         preset=args.preset
     )
-    generator.generate_library(n=args.num, output_file=args.output)
+
+    peptides = generator.generate_library(n=args.num)
+    generator.save_library_to_file(peptides, output_file=args.output)
 
 if __name__ == "__main__":
     main()
