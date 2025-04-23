@@ -2,9 +2,14 @@ import argparse
 import datetime
 import json
 from pathlib import Path
-from src import config
-from src.simulation import run_simulation
-from src.logger import save_logs
+import sys
+
+# Add src/ to path
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+
+# ✅ Import modules inside src/
+from simulation import run_simulation
+from logger import save_logs
 
 # -----------------------------
 # CLI Argument Parsing
