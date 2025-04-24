@@ -1,13 +1,27 @@
 import random
 import csv
+import argparse
 from pathlib import Path
 
-# -------------------- CONFIGURATION --------------------
-GLY_FRACTION = 0.01          # Probability of glycine (achiral)
-ANCHOR_LEN = 5               # Length of LLLLL or DDDDD to anchor
-NUM_CYCLES = 1000            # How many peptides to generate
+# -------------------- ARGPARSE --------------------
+parser = argparse.ArgumentParser(description="DL-Peptide Membrane Simulation")
+parser.add_argument('gly_fraction', type=float, nargs='?', default=0.01, help="Glycine fraction (0-1)")
+parser.add_argument('anchor_len', type=int, nargs='?', default=5, help="Anchor length (e.g., 5 for LLLLL/DDDDD)")
+parser.add_argument('mismatch_threshold', type=int, nargs='?', default=5, help="Peptides causing mismatch before growth")
+parser.add_argument('num_cycles', type=int, nargs='?', default=1000, help="Number of peptides to generate")
+parser.add_argument('output_dir', type=str, nargs='?', default="experiments/manual_run", help="Directory to save logs")
+
+args = parser.parse_args()
+
+# -------------------- CONFIG --------------------
+GLY_FRACTION = args.gly_fraction
+ANCHOR_LEN = args.anchor_len
+MISMATCH_THRESHOLD = args.mismatch_threshold
+NUM_CYCLES = args.num_cycles
+output_dir = Path(args.output_dir)
+output_dir.mkdir(parents=True, exist_ok=True)
+
 START_MEMBRANE_THICKNESS = 12
-MISMATCH_THRESHOLD = 5       # Number of mismatched peptides before growth
 MAX_MEMBRANE_THICKNESS = 25
 
 # -------------------- INITIALIZATION --------------------
@@ -16,6 +30,7 @@ L_raft = []
 D_raft = []
 log_data = []
 
+# -------------------- FUNCTIONS --------------------
 def generate_peptide():
     probabilities = [GLY_FRACTION, (1 - GLY_FRACTION) / 2, (1 - GLY_FRACTION) / 2]
     residues = ['0', 'D', 'L']
@@ -67,9 +82,6 @@ for cycle in range(1, NUM_CYCLES + 1):
     })
 
 # -------------------- EXPORT LOG --------------------
-output_dir = Path("experiments/phase1_run")
-output_dir.mkdir(parents=True, exist_ok=True)
-
 with open(output_dir / "membrane_log.csv", 'w', newline='') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=log_data[0].keys())
     writer.writeheader()
