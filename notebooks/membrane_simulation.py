@@ -2,14 +2,17 @@ import random
 import csv
 import argparse
 from pathlib import Path
+from src.uv_filter import is_uv_degraded
 
 # -------------------- ARGPARSE --------------------
-parser = argparse.ArgumentParser(description="DL-Peptide Membrane Simulation")
+parser = argparse.ArgumentParser(description="DL-Peptide Membrane Simulation with UV degradation")
 parser.add_argument('gly_fraction', type=float, nargs='?', default=0.01, help="Glycine fraction (0-1)")
 parser.add_argument('anchor_len', type=int, nargs='?', default=5, help="Anchor length (e.g., 5 for LLLLL/DDDDD)")
 parser.add_argument('mismatch_threshold', type=int, nargs='?', default=5, help="Peptides causing mismatch before growth")
 parser.add_argument('num_cycles', type=int, nargs='?', default=1000, help="Number of peptides to generate")
 parser.add_argument('output_dir', type=str, nargs='?', default="experiments/manual_run", help="Directory to save logs")
+parser.add_argument('--uv_prob', type=float, default=0.7, help="UV degradation probability if D-aromatics exceed limit")
+parser.add_argument('--max_d_aromatics', type=int, default=1, help="Maximum D-aromatics allowed before degradation")
 
 args = parser.parse_args()
 
@@ -18,6 +21,9 @@ GLY_FRACTION = args.gly_fraction
 ANCHOR_LEN = args.anchor_len
 MISMATCH_THRESHOLD = args.mismatch_threshold
 NUM_CYCLES = args.num_cycles
+UV_PROB = args.uv_prob
+MAX_D_AROMATICS = args.max_d_aromatics
+
 output_dir = Path(args.output_dir)
 output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -29,6 +35,7 @@ membrane_thickness = START_MEMBRANE_THICKNESS
 L_raft = []
 D_raft = []
 log_data = []
+uv_degraded_count = 0
 
 # -------------------- FUNCTIONS --------------------
 def generate_peptide():
@@ -57,6 +64,12 @@ def terminal_block_length(peptide):
 # -------------------- SIMULATION LOOP --------------------
 for cycle in range(1, NUM_CYCLES + 1):
     peptide = generate_peptide()
+
+    # UV degradation filter
+    if is_uv_degraded(peptide, max_d_aromatics=MAX_D_AROMATICS, degradation_prob=UV_PROB):
+        uv_degraded_count += 1
+        continue
+
     anchor_type = 'L' if peptide.endswith('L' * ANCHOR_LEN) else 'D'
 
     if anchor_type == 'L':
@@ -87,5 +100,7 @@ with open(output_dir / "membrane_log.csv", 'w', newline='') as csvfile:
     writer.writeheader()
     writer.writerows(log_data)
 
-print(f"\n✅ Simulation complete. Log saved to {output_dir/'membrane_log.csv'}")
+# -------------------- UV SUMMARY --------------------
+print(f"\n☀️ UV-degraded peptides: {uv_degraded_count} / {NUM_CYCLES}")
+print(f"✅ Simulation complete. Log saved to {output_dir/'membrane_log.csv'}")
 
