@@ -3,6 +3,7 @@ import csv
 import argparse
 from pathlib import Path
 from src.uv_filter import is_uv_degraded
+from src.vesicle_geometry import Vesicle
 
 # -------------------- ARGPARSE --------------------
 parser = argparse.ArgumentParser(description="DL-Peptide Membrane Simulation with UV degradation")
@@ -36,6 +37,22 @@ L_raft = []
 D_raft = []
 log_data = []
 uv_degraded_count = 0
+
+vesicle = Vesicle(initial_radius_nm=25, flattened=False)
+vesicle.insert_peptide()
+
+log_data.append({
+    'Cycle': cycle,
+    'MembraneThickness': membrane_thickness,
+    'L_Raft_Size': len(L_raft),
+    'D_Raft_Size': len(D_raft),
+    'L_to_D_Ratio': len(L_raft) / max(len(D_raft), 1),
+    'VesicleRadius_nm': vesicle.radius_nm,
+    'VesicleVolume_nm3': vesicle.volume(),
+    'VesicleSurfaceArea_nm2': vesicle.surface_area(),
+    'PeptidesInVesicle': vesicle.inserted_peptides
+})
+
 
 # -------------------- FUNCTIONS --------------------
 def generate_peptide():
