@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from analysis.layout_min_energy import generate_initial_grid, optimize_layout, calculate_energy
+from layout_min_energy import generate_initial_grid, optimize_layout, calculate_energy
 
 def spiral_layout(anchor_lengths, grid_size):
     """Arrange peptides in spiral from longest (center) to shortest (edges)."""
