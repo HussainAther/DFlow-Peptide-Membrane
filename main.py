@@ -31,6 +31,7 @@ def main():
         evolution_log.append({
             "Cycle": cycle,
             "Peptide_Count": len(peptides),
+            "Membrane_Thickness": membrane.thickness,
             "Raft_Count": raft_sim.count_rafts(),
             "L_fraction": raft_sim.chirality_fraction('L'),
             "D_fraction": raft_sim.chirality_fraction('D'),
