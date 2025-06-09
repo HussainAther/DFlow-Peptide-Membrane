@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for saving only
 
 from src.peptide_generator import PeptideGenerator
+from src.membrane_model import MembraneModel
 from src.visualization import Visualization
 from src.alpha_helix_raft_simulation import RaftSimulation
 
@@ -15,6 +16,7 @@ def main():
     num_cycles = 500
     num_peptides = 100
     sequence_length = 15
+    membrane = MembraneModel()
 
     # Initialize components
     generator = PeptideGenerator(num_peptides, sequence_length)
