@@ -1,19 +1,22 @@
 import torch
 import random
 import numpy as np
-from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
+# from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
 
 class PeptideGenerator:
     def __init__(self, num_peptides=100, sequence_length=15):
         self.num_peptides = num_peptides
         self.sequence_length = sequence_length
-        self.model = PeptideFlow.load_pretrained("dflow_model.pt")  # Load trained D-Flow model
+        # self.model = PeptideFlow.load_pretrained("dflow_model.pt")  # Load trained D-Flow model
     
-    def generate_peptides(self, hybrid=True):
-        """Generate hybrid L-D peptides using D-Flow."""
-        peptides = self.model.sample(self.num_peptides, seq_length=self.sequence_length, hybrid=hybrid)
+    # Then, for generation:
+    def generate_peptides(self):
+        peptides = []
+        for _ in range(self.num_peptides):
+            seq = ''.join(np.random.choice(list("ACDEFGHIKLMNPQRSTVWY"), self.sequence_length))
+            peptides.append(seq)
         return peptides
-    
+ 
     def mutate_peptide(self, peptide, mutation_rate=0.1):
         """Introduce mutations into a peptide sequence based on a mutation rate."""
         peptide_list = list(peptide)

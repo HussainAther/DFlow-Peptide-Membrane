@@ -7,7 +7,6 @@ from src.membrane_model import MembraneModel
 from src.visualization import Visualization
 from src.alpha_helix_raft_simulation import RaftSimulation
 
-
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
 
