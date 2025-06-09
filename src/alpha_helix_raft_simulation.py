@@ -35,6 +35,33 @@ class RaftSimulation:
         offsets = [(-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0)]
         neighbors = [(r + dr, c + dc) for dr, dc in offsets]
         return [(nr, nc) for nr, nc in neighbors if 0 <= nr < self.GRID_HEIGHT and 0 <= nc < self.GRID_WIDTH]
+ 
+    def place_peptides(self):
+        """
+        Attempt to place up to MAX_RAFTS peptide rafts on the hex grid,
+       with each raft composed of 3 connected hexagons in one of the allowed triangular configurations.
+        """
+        raft_id = 1
+        attempts = 0
+        max_attempts = 500  # Prevent infinite loops
+
+        while raft_id <= MAX_RAFTS and attempts < max_attempts:
+            base_r = random.randint(1, GRID_HEIGHT - 2)
+            base_c = random.randint(1, GRID_WIDTH - 2)
+            pattern = random.choice(TRIANGLE_PATTERNS)
+            triangle = [(base_r + dr, base_c + dc) for dr, dc in pattern]
+ 
+            if self.is_valid(triangle):
+                chirality = random.choice(["L", "D"])
+                for r, c in triangle:
+                    self.grid[r, c] = raft_id
+                self.rafts.append({
+                    "id": raft_id,
+                    "tiles": triangle,
+                    "chirality": chirality
+                 })
+                raft_id += 1
+            attempts += 1
 
     def place_random_raft(self, raft_id=None):
         for _ in range(100):
