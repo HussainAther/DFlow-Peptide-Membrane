@@ -11,13 +11,17 @@ class MembraneModel:
         self.thickness_variation = thickness_variation
         self.history = []
 
-    def check_stability(self, peptide):
+    def check_peptide_stability(self, peptide):
         """
         Determines if a peptide contributes to membrane stability.
         Stability is determined by hydrophobic matching.
         """
         hydrophobic_count = sum(1 for aa in peptide if aa in "LR")
         return abs(hydrophobic_count - self.thickness) < 0.5  # Threshold for stability
+
+    def log_thickness(self):
+        with open("data/membrane_thickness.json", "w") as f:
+            f.write(f'{{"final_thickness": {self.thickness}}}')
 
     def update_thickness(self, peptides):
         """
