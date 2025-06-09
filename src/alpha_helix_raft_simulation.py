@@ -153,3 +153,15 @@ class RaftSimulation:
         plt.tight_layout()
         plt.savefig(filename, dpi=200)
         plt.close()
+
+
+if __name__ == "__main__":
+    sim = RaftSimulation()
+    sim.place_peptides()
+    for _ in range(30):
+        sim.simulate_step()
+    sim.save_raft_distribution("raft_hex_chiral_final.png")
+    print(f"Rafts placed: {sim.count_rafts()}")
+    print(f"L-fraction: {sim.chirality_fraction('L'):.2f}")
+    print(f"D-fraction: {sim.chirality_fraction('D'):.2f}")
+
