@@ -4,31 +4,30 @@ import json
 
 class Visualization:
     @staticmethod
-    def plot_membrane_thickness(filename="data/membrane_thickness.json"):
-        """Plot the evolution of membrane thickness over time."""
-        with open(filename, "r") as f:
-            data = json.load(f)
-        
+    def plot_membrane_thickness(save_path="membrane_thickness.png"):
+        df = pd.read_csv("data/peptide_evolution.csv")
         plt.figure(figsize=(8, 5))
-        plt.plot(range(len(data)), [data["Membrane_Thickness"]] * len(data), label="Membrane Thickness", color='red')
-        plt.xlabel("Cycles")
-        plt.ylabel("Membrane Thickness")
-        plt.title("Membrane Thickness Evolution Over Time")
+        plt.plot(df["Cycle"], df["Membrane_Thickness"], label="Membrane Thickness")
+        plt.xlabel("Cycle")
+        plt.ylabel("Thickness")
+        plt.title("Membrane Thickness Over Time")
         plt.legend()
-        plt.show()
-    
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=300)
+        plt.close()   
+ 
     @staticmethod
-    def plot_peptide_selection(filename="data/peptide_evolution.csv"):
-        """Plot the number of peptides surviving each cycle."""
-        df = pd.read_csv(filename)
-        
+    def plot_peptide_selection(save_path="peptide_selection.png"):
+        df = pd.read_csv("data/peptide_evolution.csv")
         plt.figure(figsize=(8, 5))
-        plt.plot(df["Peptide_Count"], label="Surviving Peptides", color='blue')
-        plt.xlabel("Cycles")
-        plt.ylabel("Number of Peptides")
+        plt.plot(df["Cycle"], df["Peptide_Count"], label="Peptide Count", color='orange')
+        plt.xlabel("Cycle")
+        plt.ylabel("Count")
         plt.title("Peptide Selection Over Time")
         plt.legend()
-        plt.show()
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=300)
+        plt.close()
 
 if __name__ == "__main__":
     Visualization.plot_membrane_thickness()
