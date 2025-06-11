@@ -64,7 +64,14 @@ class RaftSimulation:
             triangle = [(base_r + dr, base_c + dc) for dr, dc in pattern]
             if self.is_valid(triangle):
                 if self.enable_catalysis:
-                    l_prob, d_prob = self.catalytic_bias(base_r, base_c)
+                    l_count = sum(1 for raft in self.rafts if raft["chirality"] == "L")
+                    d_count = sum(1 for raft in self.rafts if raft["chirality"] == "D")
+                    total = l_count + d_count
+                    if total > 0:
+                        l_prob = l_count / total
+                        d_prob = d_count / total
+                    else:
+                        l_prob = d_prob = 0.5  # fallback when no rafts yet
                     chirality = random.choices(["L", "D"], weights=[l_prob, d_prob])[0]
                 else:
                     chirality = random.choice(["L", "D"])

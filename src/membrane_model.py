@@ -13,37 +13,54 @@ class MembraneModel:
 
     def check_peptide_stability(self, peptide):
         """
-        Determines if a peptide contributes to membrane stability.
-        Stability is determined by hydrophobic matching.
+        Filters peptide based on basic properties like length, charge, and chirality.
+        Peptide is a dict with keys: 'sequence', 'chirality', 'charge' (optional).
         """
-        hydrophobic_count = sum(1 for aa in peptide if aa in "LR")
-        return abs(hydrophobic_count - self.thickness) < 0.5  # Threshold for stability
+        seq = peptide.get("sequence", "")
+        if len(seq) < 10 or len(seq) > 25:
+            return False  # filter extreme lengths
 
-    def log_thickness(self):
-        with open("data/membrane_thickness.json", "w") as f:
-            f.write(f'{{"final_thickness": {self.thickness}}}')
+        charge = peptide.get("charge", 0)
+        if abs(charge) > 3:
+            return False  # extreme polarity rejected
+
+        chirality = peptide.get("chirality", "L")
+        if chirality not in ["L", "D"]:
+            return False
+
+        return True
 
     def update_thickness(self, peptides):
         """
-        Updates the membrane thickness based on peptide interactions.
-        Positive feedback loop: stabilizing peptides reinforce the current thickness.
+        Updates membrane thickness based on peptide chirality distribution.
+        L-rich peptides stabilize (increase) thickness, D-rich destabilize.
         """
-        stabilizing_peptides = [p for p in peptides if self.check_stability(p)]
-        if len(stabilizing_peptides) > len(peptides) / 2:  # Majority rule
-            self.thickness += np.random.uniform(-self.thickness_variation, self.thickness_variation)
+        if not peptides:
+            self.thickness = 3.0
+            return
+
+        L_count = sum(1 for p in peptides if p.get("chirality", "L") == "L")
+        D_count = sum(1 for p in peptides if p.get("chirality", "L") == "D")
+        total = L_count + D_count
+
+        if total == 0:
+            self.thickness = 3.0
+            return
+
+        ratio = (L_count - D_count) / total
+        variation = np.random.normal(0, self.thickness_variation / 2)
+        self.thickness = 3.0 + 0.2 * ratio + variation
+        self.thickness = max(2.7, min(3.3, self.thickness))  # clamp within biological range
         self.history.append(self.thickness)
 
-    def save_thickness_data(self, file_path="data/membrane_thickness.json"):
-        """
-        Saves the membrane thickness evolution to a JSON file.
-        """
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, "w") as f:
-            json.dump({"Membrane_Thickness": self.thickness, "History": self.history}, f, indent=4)
-
     def get_current_thickness(self):
-        """
-        Returns the current membrane thickness.
-        """
         return self.thickness
+
+    def log_thickness(self, filename="data/membrane_thickness.json"):
+        """
+        Save thickness history to a JSON file for further inspection.
+        """
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, "w") as f:
+            json.dump(self.history, f, indent=2)
 

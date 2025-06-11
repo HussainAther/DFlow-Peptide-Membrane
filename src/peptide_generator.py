@@ -13,9 +13,16 @@ class PeptideGenerator:
     def generate_peptides(self):
         peptides = []
         for _ in range(self.num_peptides):
-            seq = ''.join(np.random.choice(list("ACDEFGHIKLMNPQRSTVWY"), self.sequence_length))
-            peptides.append(seq)
+            sequence = ''.join(random.choices(self.amino_acids, k=self.sequence_length))
+            chirality = random.choice(["L", "D"])
+            charge = sum(1 if aa in 'RK' else -1 if aa in 'DE' else 0 for aa in sequence)
+            peptides.append({
+                "sequence": sequence,
+                "chirality": chirality,
+                "charge": charge
+            })
         return peptides
+
  
     def mutate_peptide(self, peptide, mutation_rate=0.1):
         """Introduce mutations into a peptide sequence based on a mutation rate."""
