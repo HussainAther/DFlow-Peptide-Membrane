@@ -5,17 +5,27 @@ import numpy as np
 
 class PeptideGenerator:
     def __init__(self, num_peptides=100, sequence_length=15):
+        """
+        Initializes the generator with a desired number of peptides and sequence length.
+        """
         self.num_peptides = num_peptides
         self.sequence_length = sequence_length
-        # self.model = PeptideFlow.load_pretrained("dflow_model.pt")  # Load trained D-Flow model
-    
-    # Then, for generation:
+        self.amino_acids = list("ACDEFGHIKLMNPQRSTVWY")  # standard 20 amino acids
+
     def generate_peptides(self):
+        """
+        Generates a list of peptides, each as a dictionary with:
+            - 'sequence': amino acid sequence
+            - 'chirality': either 'L' or 'D'
+            - 'charge': approximate net charge based on sequence
+        """
         peptides = []
         for _ in range(self.num_peptides):
             sequence = ''.join(random.choices(self.amino_acids, k=self.sequence_length))
             chirality = random.choice(["L", "D"])
-            charge = sum(1 if aa in 'RK' else -1 if aa in 'DE' else 0 for aa in sequence)
+            charge = sum(
+                1 if aa in "RK" else -1 if aa in "DE" else 0 for aa in sequence
+            )
             peptides.append({
                 "sequence": sequence,
                 "chirality": chirality,
@@ -23,7 +33,6 @@ class PeptideGenerator:
             })
         return peptides
 
- 
     def mutate_peptide(self, peptide, mutation_rate=0.1):
         """Introduce mutations into a peptide sequence based on a mutation rate."""
         peptide_list = list(peptide)
