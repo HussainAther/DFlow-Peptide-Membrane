@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib
+import random
 matplotlib.use('Agg')  # Use non-interactive backend for saving only
 
 from src.alpha_helix_raft_simulation import RaftSimulation
@@ -49,7 +50,7 @@ def main():
         })
 
         # Regenerate peptide pool if depleted
-        if len(peptides) < 5:
+        if len(peptides) < 10:
             peptides += generator.generate_peptides()
 
     # Save data
