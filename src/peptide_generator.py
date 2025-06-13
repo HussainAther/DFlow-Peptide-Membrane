@@ -3,29 +3,22 @@ import random
 import numpy as np
 # from dflow.model import PeptideFlow  # Assuming D-Flow model exists in repo
 
+
+import random
+
 class PeptideGenerator:
     def __init__(self, num_peptides=100, sequence_length=15):
-        """
-        Initializes the generator with a desired number of peptides and sequence length.
-        """
         self.num_peptides = num_peptides
         self.sequence_length = sequence_length
-        self.amino_acids = list("ACDEFGHIKLMNPQRSTVWY")  # standard 20 amino acids
+        self.amino_acids = "ACDEFGHIKLMNPQRSTVWY"
 
     def generate_peptides(self):
-        """
-        Generates a list of peptides, each as a dictionary with:
-            - 'sequence': amino acid sequence
-            - 'chirality': either 'L' or 'D'
-            - 'charge': approximate net charge based on sequence
-        """
+        # Inside generate_peptides()
         peptides = []
         for _ in range(self.num_peptides):
             sequence = ''.join(random.choices(self.amino_acids, k=self.sequence_length))
-            chirality = random.choice(["L", "D"])
-            charge = sum(
-                1 if aa in "RK" else -1 if aa in "DE" else 0 for aa in sequence
-            )
+            chirality = random.choice(['L', 'D'])  # Introduce variability
+            charge = random.randint(-3, 3)  # Variable polarity
             peptides.append({
                 "sequence": sequence,
                 "chirality": chirality,
