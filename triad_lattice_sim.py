@@ -18,12 +18,25 @@ def hex_to_xy(q, r):
     return x, y
 
 # Triad structure: base + two neighbors forming a triangle
-# Using pointy-top offsets: (0,0) base, (1,0) right neighbor, (1,-1) top-right neighbor
-# This forms a triangle pointing upwards.
-TRIAD_OFFSETS = [(0, 0), (1, 0), (1, -1)] # Corrected to a valid connected triad
+# Using pointy-top offsets: (0,0) base, (1,0) right neighbor, (0,1) bottom-left neighbor
+# This forms a triangle pointing upwards, suitable for tight packing.
+TRIAD_OFFSETS = [(0, 0), (1, 0), (0, 1)]
 
 # Neighbors for adjacency check (all 6 neighbors in axial coordinates for pointy-top)
 HEX_NEIGHBORS = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+
+# Define how a triad can be placed relative to an existing hex
+# For each neighbor direction of an existing hex, define the base (q,r) offset for a new triad
+# such that the new triad's base occupies that neighbor position.
+# The key is to map a neighbor direction to the (dq, dr) for the new triad's base.
+TRIAD_ATTACHMENT_RULES = {
+    (1, 0): (1, 0),   # Attach to right neighbor
+    (1, -1): (1, -1), # Attach to top-right neighbor
+    (0, -1): (0, -1), # Attach to top-left neighbor
+    (-1, 0): (-1, 0), # Attach to left neighbor
+    (-1, 1): (-1, 1), # Attach to bottom-left neighbor
+    (0, 1): (0, 1),   # Attach to bottom-right neighbor
+}
 
 # Colors
 colors = list(mcolors.TABLEAU_COLORS.values())
@@ -50,69 +63,101 @@ def get_all_neighbors(q, r):
 
 def create_triads(count):
     """
-    Creates triads ensuring each new triad touches at least one hex
-    from a previously placed triad.
+    Creates triads ensuring they form a single connected cluster with no gaps.
     """
     if count <= 0:
         return []
 
     triads = []
     placed_hex_coords = set()  # Set of all individual hex coordinates placed so far
-    available_neighbor_hexes = set()  # Set of coordinates adjacent to placed hexes where a new triad base can go
+    perimeter_edges = {}  # Map of (hex_coord, neighbor_direction) -> list of triad indices that could attach there
 
     # Place the first triad at origin
     color = colors[len(triads) % len(colors)]
     first_triad = PeptideTriad(0, 0, color)
     triads.append(first_triad)
-    placed_hex_coords.update(first_triad.hex_cells())
+    first_hexes = first_triad.hex_cells()
+    placed_hex_coords.update(first_hexes)
     
-    # Add neighbors of the first triad's hexes to the available set
-    for hq, hr in first_triad.hex_cells():
-        for nq, nr in get_all_neighbors(hq, hr):
-            if (nq, nr) not in placed_hex_coords:
-                 available_neighbor_hexes.add((nq, nr))
+    # Initialize perimeter: for each hex in the first triad, add its neighbors to potential attachment points
+    for hq, hr in first_hexes:
+        for n_dir in HEX_NEIGHBORS:
+            neighbor_coord = (hq + n_dir[0], hr + n_dir[1])
+            # Only track neighbors that are not part of the initial triad
+            if neighbor_coord not in placed_hex_coords:
+                key = (neighbor_coord, (-n_dir[0], -n_dir[1])) # Store the reverse direction
+                if key not in perimeter_edges:
+                    perimeter_edges[key] = []
+                perimeter_edges[key].append(0) # Index of the first triad
+
 
     # Place subsequent triads
-    for _ in range(1, count):
-        max_attempts = 1000 # Prevent infinite loop
-        placed = False
-        attempts = 0
-        while not placed and attempts < max_attempts:
-            attempts += 1
-            if not available_neighbor_hexes:
-                print(f"Warning: Could not place triad after {attempts-1} attempts. Stopping.")
-                return triads # Return what we have so far
+    for i in range(1, count):
+        if not perimeter_edges:
+            print(f"Warning: No perimeter edges available to place triad {i+1}. Stopping.")
+            break
 
-            # Pick a random available neighbor hex to try as the base of the new triad
-            base_q, base_r = random.choice(list(available_neighbor_hexes))
+        # Get a list of all valid attachment points
+        valid_attachment_points = list(perimeter_edges.keys())
+        
+        if not valid_attachment_points:
+            print(f"Warning: No valid attachment points found for triad {i+1}. Stopping.")
+            break
             
-            # Create a trial triad at this base position
-            trial_triad = PeptideTriad(base_q, base_r, colors[len(triads) % len(colors)])
-            trial_cells = trial_triad.hex_cells()
+        # Choose a random valid attachment point
+        attach_neighbor_coord, attach_direction_from_neighbor = random.choice(valid_attachment_points)
+        
+        # Calculate the base (q,r) for the new triad based on the attachment rule
+        # The base of the new triad should be at attach_neighbor_coord
+        base_q, base_r = attach_neighbor_coord[0], attach_neighbor_coord[1]
+        
+        # Ensure the rule exists for this direction
+        if attach_direction_from_neighbor not in TRIAD_ATTACHMENT_RULES:
+            print(f"Warning: No attachment rule for direction {attach_direction_from_neighbor}. Skipping.")
+            # Remove this edge from perimeter as it's problematic
+            del perimeter_edges[(attach_neighbor_coord, attach_direction_from_neighbor)]
+            continue
+            
+        # The TRIAD_ATTACHMENT_RULES maps the direction from the neighbor to where the new triad's base should be.
+        # Since we already have the target base (attach_neighbor_coord), we don't need to adjust base_q, base_r further.
+        # But we need to verify that the full triad will fit.
+        
+        # Create a trial triad at this base position
+        trial_triad = PeptideTriad(base_q, base_r, colors[i % len(colors)])
+        trial_cells = trial_triad.hex_cells()
 
-            # Check if the entire trial triad fits without overlapping existing hexes
-            if all(cell not in placed_hex_coords for cell in trial_cells):
-                # Success! Place the triad
-                triads.append(trial_triad)
-                placed_hex_coords.update(trial_cells)
-                placed = True
-                
-                # Remove the base cell from available neighbors (it's now occupied)
-                available_neighbor_hexes.discard((base_q, base_r))
-                
-                # Add new neighbors of the newly placed hexes to available set
-                for hq, hr in trial_cells:
-                    for nq, nr in get_all_neighbors(hq, hr):
-                        if (nq, nr) not in placed_hex_coords:
-                            available_neighbor_hexes.add((nq, nr))
-                
-                # Optimization: Remove any newly occupied cells from available set
-                # (In case a neighbor of the new triad was also a neighbor of an old one)
-                available_neighbor_hexes.difference_update(trial_cells)
-
-        if not placed:
-             print(f"Warning: Could not place triad after {max_attempts} attempts. Stopping.")
-             return triads # Return what we have so far
+        # Check if the entire trial triad fits without overlapping existing hexes
+        if all(cell not in placed_hex_coords for cell in trial_cells):
+            # Success! Place the triad
+            triads.append(trial_triad)
+            placed_hex_coords.update(trial_cells)
+            
+            # Update perimeter_edges:
+            # 1. Remove the edge where we just attached
+            del perimeter_edges[(attach_neighbor_coord, attach_direction_from_neighbor)]
+            
+            # 2. Add new perimeter edges created by this triad
+            for hq, hr in trial_cells:
+                for n_dir in HEX_NEIGHBORS:
+                    neighbor_coord = (hq + n_dir[0], hr + n_dir[1])
+                    if neighbor_coord not in placed_hex_coords:
+                        key = (neighbor_coord, (-n_dir[0], -n_dir[1]))
+                        if key not in perimeter_edges:
+                            perimeter_edges[key] = []
+                        perimeter_edges[key].append(i) # Index of the new triad
+                        
+            # 3. Remove any edges from perimeter that are now occupied by the new triad
+            for cell in trial_cells:
+                for n_dir in HEX_NEIGHBORS:
+                    # Check if this cell+direction was a perimeter edge pointing to another triad
+                    reverse_key = (cell, n_dir)
+                    if reverse_key in perimeter_edges:
+                         del perimeter_edges[reverse_key]
+                         
+        else:
+            # This specific attachment point was invalid, remove it from options
+            print(f"Warning: Trial placement failed for triad {i+1}, trying another point.")
+            del perimeter_edges[(attach_neighbor_coord, attach_direction_from_neighbor)]
             
     return triads
 
