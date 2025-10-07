@@ -6,24 +6,34 @@ import numpy as np
 
 import random
 
+
+# src/peptide_generator.py
+
+import random
+
 class PeptideGenerator:
-    def __init__(self, num_peptides=100, sequence_length=15):
+    def __init__(self, num_peptides, sequence_length):
         self.num_peptides = num_peptides
         self.sequence_length = sequence_length
         self.amino_acids = "ACDEFGHIKLMNPQRSTVWY"
 
     def generate_peptides(self):
-        # Inside generate_peptides()
         peptides = []
         for _ in range(self.num_peptides):
             sequence = ''.join(random.choices(self.amino_acids, k=self.sequence_length))
-            chirality = random.choice(['L', 'D'])  # Introduce variability
-            charge = random.randint(-3, 3)  # Variable polarity
-            peptides.append({
+            chirality = random.choices(["L", "D"], weights=[0.6, 0.4])[0]  # slight L bias
+
+            # Simulated biophysical properties
+            charge = random.randint(-5, 5)  # -5 to +5 range
+            hydrophobicity = sum([1 if aa in "AILMFWV" else -1 for aa in sequence]) / len(sequence)
+
+            peptide = {
                 "sequence": sequence,
                 "chirality": chirality,
-                "charge": charge
-            })
+                "charge": charge,
+                "hydrophobicity": hydrophobicity
+            }
+            peptides.append(peptide)
         return peptides
 
     def mutate_peptide(self, peptide, mutation_rate=0.1):

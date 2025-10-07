@@ -1,6 +1,1 @@
-# requirements.txt
-numpy
-matplotlib
-torch
-dflow  # Assumes D-Flow is an installable module
-
+numpy>=1.20\nmatplotlib>=3.4

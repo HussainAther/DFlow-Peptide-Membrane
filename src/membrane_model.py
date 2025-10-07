@@ -2,6 +2,9 @@ import numpy as np
 import json
 import os
 
+
+# src/membrane_model.py
+
 class MembraneModel:
     def __init__(self, initial_thickness=3.0, thickness_variation=0.1):
         self.thickness = initial_thickness
@@ -9,25 +12,23 @@ class MembraneModel:
         self.history = []
 
     def check_peptide_stability(self, peptide):
-        """
-        Basic filtering: must not be too short, too polar, or too hydrophilic.
-        Peptide is a dict with keys: 'sequence', 'chirality', 'charge' (optional)
-        """
         seq = peptide.get("sequence", "")
         if len(seq) < 10:
             return False
 
         charge = peptide.get("charge", 0)
-        if abs(charge) > 3:
-            return False  # Too polar
-
-        hydrophobic_aas = set("AILMFWVY")  # Typical hydrophobic residues
-        hydrophobic_count = sum(seq.count(aa) for aa in hydrophobic_aas)
-        if hydrophobic_count / len(seq) < 0.3:
-            return False  # Too hydrophilic
+        if abs(charge) > 4:
+            return False  # too polar
 
         chirality = peptide.get("chirality", "L")
         if chirality not in ["L", "D"]:
+            return False
+
+        # Hydrophobicity match: if membrane is thick (L-rich), reject hydrophilic
+        hydrophobicity = peptide.get("hydrophobicity", 0)
+        if self.thickness > 3.0 and hydrophobicity < 0:
+            return False
+        elif self.thickness < 3.0 and hydrophobicity > 0:
             return False
 
         return True
@@ -37,12 +38,15 @@ class MembraneModel:
             self.thickness = 3.0
             return
 
-        L_count = sum(1 for p in peptides if p.get("chirality") == "L")
-        D_count = sum(1 for p in peptides if p.get("chirality") == "D")
+        L_count = sum(1 for p in peptides if p.get("chirality", "L") == "L")
+        D_count = sum(1 for p in peptides if p.get("chirality", "L") == "D")
         total = L_count + D_count
-
         ratio = (L_count - D_count) / total if total > 0 else 0
-        self.thickness = 3.0 + 0.2 * ratio  # Between 2.8 and 3.2
+
+        # Stronger feedback for visual change
+        self.thickness = 3.0 + 0.4 * ratio  # between 2.6 and 3.4
+        self.thickness = max(2.5, min(self.thickness, 3.5))
+        self.history.append(self.thickness)
 
     def get_current_thickness(self):
         return self.thickness
