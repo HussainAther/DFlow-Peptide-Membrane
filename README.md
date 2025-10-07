@@ -1,41 +1,46 @@
 # DFlow — Peptide–Membrane Simulation (Reversible, Diurnal-Driven)
 
-**DFlow** models a 2D amphiphile membrane on a hex lattice with embedded peptide “rafts.”  
-All membrane processes obey **microscopic reversibility** (forward ⇄ reverse), with a **single non-equilibrium driver**: diurnal-biased **peptide polymerization** (wet/dry or hot/cold cycling as the Earth rotates).  
-Peptide **insertion/ejection** is **hydrophobic-mismatch gated** against local membrane thickness.
+**DFlow** models a 2D amphiphile membrane on a hexagonal lattice with embedded peptide “rafts.”  
+All **membrane** processes respect **microscopic reversibility** (forward ⇄ reverse). The sole non-equilibrium driver is **diurnal-biased peptide polymerization** in solution (wet/dry or hot/cold cycling). Peptide **insertion** into the membrane is **hydrophobic-mismatch gated**.
+
+This repo contains a single-file runner (`dflow_reversible.py`) plus modular sources under `src/` (WIP).
 
 ---
 
-## 🧠 Scientific principles (what makes this “physical”)
+## 🧠 Scientific Principles (this build)
 
-- **Microscopic reversibility:** For every allowed membrane event, the reverse event exists and is accessible.  
-- **Single bias:** Only **polymerization in solution** is externally biased by the day–night cycle; depolymerization remains possible (non-zero).  
-- **Hydrophobic mismatch gating:** A peptide’s effective hydrophobic length \(L_p\) must match site thickness (2 nm for mono-carboxylic, 4 nm for di-carboxylic) within a tolerance \(\varepsilon\) to insert.  
-- **Rafts as bonds:** Peptides form **reversible association bonds** (edges touching). Rafts grow or split naturally as bonds associate/dissociate.  
-- **Mass accounting:** A **solution pool** stores peptides. Polymerization adds to the pool; insertion consumes; desorption returns.
+- **Microscopic reversibility:** Every allowed membrane event has a reverse (or is self-inverse).  
+- **Single external bias:** Only **polymerization in solution** is biased by day/night; depolymerization remains possible (non-zero).  
+- **Hydrophobic mismatch gating (window + soft acceptance):**  
+  - Hard window: insert if \( |L_p - d_{\text{site}}| \le \varepsilon \).  
+  - Soft gate: slight over-mismatch may insert with Boltzmann weight \( \exp(-\beta\,\Delta) \).  
+- **Helix requirement & length cap:** Peptides are generated with a **helical/coil** flag. Only **helical** peptides can insert. Length is **capped at 12 aa** (Deamer note; primary reference pending).  
+- **Crowding feedback:** Peptides that don’t fit the membrane go to a **crowding pool** which **slows polymerization** (PCR-like) via \( f=1/(1+\gamma\,C) \).  
+- **Rafts & 2D Stokes-like diffusion:** Peptides can form **reversible bonds** when touching; raft diffusion attempt rate scales as \( D \sim D_0/\text{size}^\alpha \).  
+- **Optional fusion exception (off by default):** You can toggle **quasi-irreversible fusion** for large rafts (no dissociation above a size threshold).
 
 ---
 
-## 📦 Repo layout
+## 📦 Layout
 
 ```
 
 .
 ├─ dflow_reversible.py        # main physically-grounded runner (use this)
-├─ dflow_single.py            # minimal baseline runner (simple demo)
+├─ dflow_single.py            # minimal demo (optional)
 ├─ src/
-│  ├─ membrane_model.py       # reusable helpers (optional, WIP)
-│  └─ peptide_generator.py    # reusable helpers (optional, WIP)
+│  ├─ membrane_model.py       # reusable helpers (WIP)
+│  └─ peptide_generator.py    # reusable helpers (WIP)
 ├─ examples/
 │  └─ legacy/
-│     └─ membrane_events_case_loop.py  # earlier prototype (optional)
-├─ configs/                   # (optional) small text/yaml configs
+│     └─ membrane_events_case_loop.py
+├─ configs/                   # optional small configs
 ├─ requirements.txt
 └─ README.md
 
 ````
 
-> Outputs (frames, logs) are written under `runs/…` and should be git-ignored.
+> Outputs (frames, logs) go under `runs/...` and should be git-ignored.
 
 ---
 
@@ -43,7 +48,7 @@ Peptide **insertion/ejection** is **hydrophobic-mismatch gated** against local m
 
 ```bash
 python -V              # Python 3.8+ (3.10+ recommended)
-python -m venv .venv && source .venv/bin/activate  # or your preferred env
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ````
 
@@ -56,9 +61,9 @@ matplotlib>=3.4
 
 ---
 
-## 🚀 Quick start
+## 🚀 Quick Start
 
-Run the reversible, physically grounded simulation:
+Run the reversible, diurnal-driven simulation:
 
 ```bash
 python dflow_reversible.py \
@@ -68,15 +73,16 @@ python dflow_reversible.py \
   --SAVE_STEPS 0 750 1500
 ```
 
-Artifacts (created automatically):
+Artifacts:
 
-* `runs/exp_phys/frames/frame_0000.png` (and other frames)
+* `runs/exp_phys/frames/frame_0000.png` (+ frames at save steps)
 * `runs/exp_phys/event_log.json`
 * `runs/exp_phys/raft_size_histogram.png`
 * `runs/exp_phys/raft_sizes.csv`
 * `runs/exp_phys/peptide_pool.json`
+* `runs/exp_phys/crowding.json`
 
-Minimal demo (simpler visuals, fewer physics):
+Minimal demo:
 
 ```bash
 python dflow_single.py --N0 12 --TOTAL_EVENTS 1000 --OUT runs/exp_0001 --SAVE_STEPS 0 500 1000
@@ -84,21 +90,21 @@ python dflow_single.py --N0 12 --TOTAL_EVENTS 1000 --OUT runs/exp_0001 --SAVE_ST
 
 ---
 
-## ⚙️ CLI options (key ones)
+## ⚙️ Key CLI Options
 
 `dflow_reversible.py`
 
-* `--N0` *(int)*: half-width of rhombus region (initial lattice size).
-* `--TOTAL_EVENTS` *(int)*: number of stochastic events to apply.
-* `--OUT` *(path)*: output directory for frames + logs.
-* `--SAVE_STEPS` *(ints)*: steps at which to save frames (e.g., `0 750 1500`).
+* `--N0` *(int)*: half-width of initial rhombus (lattice size).
+* `--TOTAL_EVENTS` *(int)*: number of stochastic events.
+* `--OUT` *(path)*: output directory.
+* `--SAVE_STEPS` *(ints)*: steps at which frames are saved (e.g., `0 750 1500`).
 * **Diurnal driver:**
 
   * `--DAY_STEPS`, `--NIGHT_STEPS` *(int)*: steps per phase.
-  * `--POLY_GAIN_DAY`, `--POLY_GAIN_NIGHT` *(float)*: bias multipliers for polymerization.
-* `--BETA` *(float)*: inverse temperature (β = 1/kT) placeholder for rate helpers.
+  * `--POLY_GAIN_DAY`, `--POLY_GAIN_NIGHT` *(float)*: polymerization bias multipliers.
+* `--BETA` *(float)*: inverse temperature used in the **soft mismatch gate**.
 
-Example (strong day bias, short days):
+Example (strong day bias, shorter days):
 
 ```bash
 python dflow_reversible.py --N0 14 --TOTAL_EVENTS 2000 \
@@ -110,78 +116,91 @@ python dflow_reversible.py --N0 14 --TOTAL_EVENTS 2000 \
 
 ## 🧩 Events (forward ⇄ reverse)
 
-**Amphiphiles & thickness**
+**Amphiphiles / membrane**
 
 * `A1_swap` — lateral carbon-length swap (self-inverse).
-* `A3_plus_thicken` / `A3_minus_thin` — mono⇄di thickness (2 nm ⇄ 4 nm).
+* `A3_plus_thicken` / `A3_minus_thin` — site thickness 2 nm ⇄ 4 nm (mono⇄di).
 
 **Peptides (solution & membrane)**
 
-* `P1_plus_polymerize` / `P1_minus_depolymerize` — **biased** polymerization; reverse stays > 0.
-* `P2_plus_insert` / `P2_minus_desorb` — **mismatch-gated** insertion/ejection.
-* `P3_step` — triad diffusion (self-inverse if symmetric).
-* `P4_flip` — inside↔outside orientation flip (metadata).
+* `P1_plus_polymerize` / `P1_minus_depolymerize` — **biased** polymerization (diurnal), reverse allowed. Crowding slows the forward rate.
+* `P2_plus_insert` / `P2_minus_desorb` — **mismatch-gated** insertion/ejection (hard window + soft acceptance; helix required).
+* `P3_step` — diffusion; **raft-scaled attempt rate** (2D Stokes-like).
+* `P4_flip` — inside↔outside (metadata only).
 
 **Raft association**
 
 * `R1_plus_assoc` / `R1_minus_dissoc` — reversible bonds between edge-touching peptides.
+* *(Optional)* **Fusion exception**: when enabled, bonds in large rafts don’t dissociate.
 
 ---
 
-## 🧱 Data model (key fields)
+## 🔧 Parameters (in code)
+
+* **Mismatch window:** `EPS_MISMATCH_NM = 0.5` (hard), with soft gate fraction `SOFT_GATE_FRACTION = 0.6` and `BETA = 1.0`.
+* **Peptide length cap:** `MAX_PEPT_LEN = 12`; helical probability ~0.7 (tunable).
+* **Crowding feedback:** `CROWDING_GAMMA = 0.02` (slowdown), `CROWDING_DECAY = 0.0` (no decay by default).
+* **Raft diffusion scaling:** `RAFT_D0 = 1.0`, `RAFT_DIFF_SIZE_EXP = 1.0`.
+* **Fusion toggle:** `FUSION_IRREVERSIBLE = False`, `FUSION_SIZE_THRESH = 6`.
+
+> All of the above are defined near the top of `dflow_reversible.py` for easy tuning.
+
+---
+
+## 🧱 Data Model (key fields)
 
 * `amph[(q,r)] = { "carbon": int, "mono_di": 1|2, "pep": bool }`
-* `peptides[pid] = { "cent": (q,r), "orient": int, "inside": bool, "chir": "L"|"D"|"0", "length": int, "Lp_nm": float }`
+* `peptides[pid] = { "cent": (q,r), "orient": int, "inside": bool, "chir": "L"|"D"|"0", "length": int, "Lp_nm": float, "helical": bool }`
 * `bonds = { frozenset({pid1,pid2}), ... }`
-* `pool = {"L": int, "D": int, "0": int}`  (solution peptides)
+* `pool = {"L": int, "D": int, "0": int}`
+* `crowding_count` *(int)*
 
 ---
 
 ## 📊 Outputs
 
-* **Frames**: membrane snapshots with peptides colored by **bond-connected components** (rafts).
+* **Frames**: membrane snapshots, peptides colored by **bond-connected components** (rafts).
 * **Histogram**: `raft_size_histogram.png` (component sizes).
-* **Logs**: `event_log.json` (sequence of events), `peptide_pool.json`, `raft_sizes.csv`.
+* **Logs**: `event_log.json` (all events), `peptide_pool.json`, `crowding.json`, `raft_sizes.csv`.
 
 ---
 
 ## 🤝 Contributing
 
-1. Open a branch: `feat/event-pept-desorb` (or similar).
-2. Add your event as a **reversible pair** (or self-inverse) and wire into the scheduler.
-3. Keep insertion rules **mismatch-gated**.
+1. Create a feature branch: `feat/event-<name>`.
+2. Add your event as a **reversible pair** (or self-inverse) and register it in the scheduler.
+3. Preserve insertion **mismatch gating** and mass accounting (pool ↔ membrane ↔ crowding).
 4. Don’t commit outputs/binaries; rely on `.gitignore`.
 
-Recommended new events to try:
+**Good starter ideas:**
 
-* `pept_desorb` (done) — refine kinetics/energetics.
-* `raft_fission` — when weakly bonded clusters split (via dissociation rules).
-* `diurnal_modulators` — let day/night modulate additional **rates**, but keep forward/reverse symmetry intact.
+* Temperature-dependent rates (affect both forward/reverse symmetrically).
+* Curvature/protein coupling proxies (keep reverse path available).
+* Alternative crowding models or compartmentalization.
 
 ---
 
-## 🧪 Tests (optional starter)
+## 🧪 Quick Checks (manual)
 
-* Run a short sim and assert that:
-
-  * `P2_plus_insert` increases covered sites; `P2_minus_desorb` restores them.
-  * Bonds appear/disappear over time (`R1_plus_assoc`/`R1_minus_dissoc`).
-  * Pool counts move in expected directions with polymerization bias.
-
-(We’ll add a tiny `pytest` suite later.)
+* Insertions are mostly **helical** and within the **mismatch window**.
+* Rejected insertions increase `crowding_count`; polymerization rate drops as crowding grows.
+* Raft histogram forms; larger rafts **diffuse less** (fewer `P3_step` on big clusters).
+* Optional: enable fusion toggle and verify large rafts stop dissociating.
 
 ---
 
 ## 🐞 Troubleshooting
 
-* **TypeError with `str|None`**: you’re on Python < 3.10. Use this repo (3.8-compatible) or upgrade Python.
-* **No frames appear**: check `--SAVE_STEPS` includes `0` or your chosen steps; confirm `runs/.../frames/` exists.
-* **Matplotlib backend**: we force `Agg` for headless save; this is normal on servers.
+* **TypeError with `str|None`** → upgrade to Python ≥ 3.10 or use this repo (already 3.8-compatible).
+* **No frames** → ensure `--SAVE_STEPS` includes `0` or desired steps; check `runs/.../frames`.
+* **Backend warnings** → `matplotlib` uses `Agg` for headless saves; this is expected.
 
 ---
 
-## 📚 Citation / Attribution
+## 📚 Notes & Acknowledgments
 
-If you use this in a paper or report, please cite the DFlow project and the associated manuscripts in preparation (Longo et al.; Gordon & Ather, 2025).
-Contributors: R. Gordon, S. H. Ather, S. Longo, et al.
+* Peptide length cap (~12 aa) follows a note in David Deamer’s *First Life* (Kindle p.84). We’re seeking a primary source; if you have one, please share.
+* Project contributors include Richard Gordon, Syed Hussain Ather, Savino Longo, and collaborators.
+
+*If you use this code, please cite the DFlow project and related manuscripts in preparation.*
 
