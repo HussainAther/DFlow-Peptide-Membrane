@@ -32,6 +32,9 @@ SOFT_GATE_FRACTION = 0.6     # portion of EPS used as "free" zone; beyond it cos
 CROWDING_GAMMA = 0.02        # slowdown coefficient: higher => more slowdown
 CROWDING_DECAY = 0.0         # per-step decay of crowding (0 = no decay)
 
+# Route desorbed peptides: False=return to pool (default), True=send to crowding
+DESORB_TO_CROWDING = False
+
 # Raft diffusion (2D Stokes-like proxy): D(size) ~ D0 / size^exp
 RAFT_D0 = 1.0
 RAFT_DIFF_SIZE_EXP = 1.0
@@ -367,19 +370,47 @@ def do_insert(mem:Membrane, env:DiurnalEnv):
         "chir":proto["chir"],"length":proto["length"],"helical":proto["helical"]
     })
 
-def do_desorb(mem:Membrane, env:DiurnalEnv):
-    if not mem.peptides: return
+def do_desorb(mem: Membrane, env: DiurnalEnv):
+    """Remove a random embedded peptide and conserve mass by routing it either
+    back to the solution pool (reversible counterpart of insertion) or to a
+    'crowding' bucket (experimental hypothesis).
+
+    Logs:
+      {"evt":"P2_minus_desorb","pid":..., "cells":[...], "chir":"L|D|0", "dest":"pool|crowding"}
+    """
+    if not mem.peptides:
+        return
+
     pid = random.choice(list(mem.peptides.keys()))
     cells = mem.peptide_cells(pid)
-    chir = mem.peptides[pid]["chir"]
+    chir  = mem.peptides[pid]["chir"]
+
+    # free cells
     for c in cells:
-        if c in mem.amph: mem.amph[c]["pep"] = False
-    # remove bonds touching pid
+        if c in mem.amph:
+            mem.amph[c]["pep"] = False
+
+    # remove incident bonds
     mem.bonds = {b for b in mem.bonds if pid not in b}
+
+    # remove peptide
     del mem.peptides[pid]
-    # return to solution pool (mass accounting)
-    mem.pool_add(chir, 1)
-    mem.event_log.append({"evt":"P2_minus_desorb","pid":pid,"cells":cells,"chir_returned":chir})
+
+    # destination: pool (default) or crowding (toggle)
+    if DESORB_TO_CROWDING:
+        mem.crowding_count += 1
+        dest = "crowding"
+    else:
+        mem.pool_add(chir, 1)
+        dest = "pool"
+
+    mem.event_log.append({
+        "evt": "P2_minus_desorb",
+        "pid": pid,
+        "cells": cells,
+        "chir": chir,
+        "dest": dest
+    })
 
 # P3: diffusion (size-dependent via raft components)
 def connected_components(mem:Membrane):
@@ -681,10 +712,16 @@ def parse_args():
 
     # Energetics temp factor (β = 1/kT) placeholder for soft gate
     p.add_argument("--BETA", type=float, default=1.0)
+    p.add_argument(
+    "--DESORB_TO_CROWDING",
+    action="store_true",
+    help="Route desorbed peptides to crowding instead of returning to pool."
+    )
     return p.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+    DESORB_TO_CROWDING = args.DESORB_TO_CROWDING
     out = Path(args.OUT); out.mkdir(parents=True, exist_ok=True)
     run_sim(
         N0=args.N0,
