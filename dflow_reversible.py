@@ -712,10 +712,16 @@ def parse_args():
 
     # Energetics temp factor (β = 1/kT) placeholder for soft gate
     p.add_argument("--BETA", type=float, default=1.0)
+    p.add_argument(
+    "--DESORB_TO_CROWDING",
+    action="store_true",
+    help="Route desorbed peptides to crowding instead of returning to pool."
+    )
     return p.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+    DESORB_TO_CROWDING = args.DESORB_TO_CROWDING
     out = Path(args.OUT); out.mkdir(parents=True, exist_ok=True)
     run_sim(
         N0=args.N0,
