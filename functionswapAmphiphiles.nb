@@ -1,0 +1,1486 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Wolfram 14.2' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       154,          7]
+NotebookDataLength[     62957,       1478]
+NotebookOptionsPosition[     62375,       1460]
+NotebookOutlinePosition[     62769,       1476]
+CellTagsIndexPosition[     62726,       1473]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell[BoxData[{
+ RowBox[{
+  RowBox[{
+   RowBox[{"swapAmphiphiles", "[", "gridSize_", "]"}], ":=", 
+   RowBox[{"Module", "[", "\[IndentingNewLine]", "\t  ", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{
+      "hexGrid", ",", "vertexCoords", ",", "hexagonCycles", ",", 
+       "randomIntegers", ",", "adjacentHexagonsList", ",", 
+       "swappedHexagons"}], "}"}], ",", "\[IndentingNewLine]", "\t  ", 
+     "\[IndentingNewLine]", "\t  ", 
+     RowBox[{"(*", " ", 
+      RowBox[{"Create", " ", "hexagonal", " ", "grid", " ", "graph"}], " ", 
+      "*)"}], "\[IndentingNewLine]", "\t  ", 
+     RowBox[{
+      RowBox[{"hexGrid", "=", 
+       RowBox[{
+        InterpretationBox[
+         TagBox[
+          TagBox[
+           DynamicModuleBox[{Typeset`open = False}, 
+            FrameBox[
+             PaneSelectorBox[{False->GridBox[{
+                {
+                 PaneBox[GridBox[{
+                    {
+                    StyleBox[
+                    StyleBox[
+                    AdjustmentBox["\<\"[\[FilledSmallSquare]]\"\>",
+                    BoxBaselineShift->-0.25,
+                    BoxMargins->{{0, 0}, {-1, -1}}], "ResourceFunctionIcon",
+                    
+                    FontColor->RGBColor[
+                    0.8745098039215686, 0.2784313725490196, 
+                    0.03137254901960784]],
+                    ShowStringCharacters->False,
+                    FontFamily->"Source Sans Pro Black",
+                    FontSize->0.6538461538461539 Inherited,
+                    FontWeight->"Heavy",
+                    PrivateFontOptions->{"OperatorSubstitution"->False}], 
+                    StyleBox[
+                    RowBox[{
+                    StyleBox["HexagonalGridGraph", "ResourceFunctionLabel"], 
+                    " "}],
+                    ShowAutoStyles->False,
+                    ShowStringCharacters->False,
+                    FontSize->Rational[12, 13] Inherited,
+                    FontColor->GrayLevel[0.1]]}
+                   },
+                   GridBoxSpacings->{"Columns" -> {{0.25}}}],
+                  Alignment->Left,
+                  BaseStyle->{LineSpacing -> {0, 0}, LineBreakWithin -> False},
+                  BaselinePosition->Baseline,
+                  FrameMargins->{{3, 0}, {0, 0}}], 
+                 ItemBox[
+                  PaneBox[
+                   TogglerBox[Dynamic[Typeset`open], {True->
+                    
+                    DynamicBox[FEPrivate`FrontEndResource[
+                    "FEBitmaps", "IconizeCloser"],
+                    
+                    ImageSizeCache->{
+                    11., {0.878509521484375, 10.121490478515625`}}], False->
+                    
+                    DynamicBox[FEPrivate`FrontEndResource[
+                    "FEBitmaps", "IconizeOpener"],
+                    
+                    ImageSizeCache->{
+                    11., {0.878509521484375, 10.121490478515625`}}]},
+                    Appearance->None,
+                    BaselinePosition->Baseline,
+                    ContentPadding->False,
+                    FrameMargins->0],
+                   Alignment->Left,
+                   BaselinePosition->Baseline,
+                   FrameMargins->{{1, 1}, {0, 0}}],
+                  Frame->{{
+                    RGBColor[
+                    0.8313725490196079, 0.8470588235294118, 
+                    0.8509803921568627, 0.5], False}, {False, False}}]}
+               },
+               BaselinePosition->{1, 1},
+               
+               GridBoxAlignment->{
+                "Columns" -> {{Left}}, "Rows" -> {{Baseline}}},
+               
+               GridBoxItemSize->{
+                "Columns" -> {{Automatic}}, "Rows" -> {{Automatic}}},
+               GridBoxSpacings->{"Columns" -> {{0}}, "Rows" -> {{0}}}], True->
+              GridBox[{
+                {GridBox[{
+                   {
+                    PaneBox[GridBox[{
+                    {
+                    StyleBox[
+                    StyleBox[
+                    AdjustmentBox["\<\"[\[FilledSmallSquare]]\"\>",
+                    BoxBaselineShift->-0.25,
+                    BoxMargins->{{0, 0}, {-1, -1}}], "ResourceFunctionIcon",
+                    
+                    FontColor->RGBColor[
+                    0.8745098039215686, 0.2784313725490196, 
+                    0.03137254901960784]],
+                    ShowStringCharacters->False,
+                    FontFamily->"Source Sans Pro Black",
+                    FontSize->0.6538461538461539 Inherited,
+                    FontWeight->"Heavy",
+                    PrivateFontOptions->{"OperatorSubstitution"->False}], 
+                    StyleBox[
+                    RowBox[{
+                    StyleBox["HexagonalGridGraph", "ResourceFunctionLabel"], 
+                    " "}],
+                    ShowAutoStyles->False,
+                    ShowStringCharacters->False,
+                    FontSize->Rational[12, 13] Inherited,
+                    FontColor->GrayLevel[0.1]]}
+                    },
+                    GridBoxSpacings->{"Columns" -> {{0.25}}}],
+                    Alignment->Left,
+                    
+                    BaseStyle->{
+                    LineSpacing -> {0, 0}, LineBreakWithin -> False},
+                    BaselinePosition->Baseline,
+                    FrameMargins->{{3, 0}, {0, 0}}], 
+                    ItemBox[
+                    PaneBox[
+                    TogglerBox[Dynamic[Typeset`open], {True->
+                    
+                    DynamicBox[FEPrivate`FrontEndResource[
+                    "FEBitmaps", "IconizeCloser"]], False->
+                    
+                    DynamicBox[FEPrivate`FrontEndResource[
+                    "FEBitmaps", "IconizeOpener"]]},
+                    Appearance->None,
+                    BaselinePosition->Baseline,
+                    ContentPadding->False,
+                    FrameMargins->0],
+                    Alignment->Left,
+                    BaselinePosition->Baseline,
+                    FrameMargins->{{1, 1}, {0, 0}}],
+                    Frame->{{
+                    RGBColor[
+                    0.8313725490196079, 0.8470588235294118, 
+                    0.8509803921568627, 0.5], False}, {False, False}}]}
+                  },
+                  BaselinePosition->{1, 1},
+                  
+                  GridBoxAlignment->{
+                   "Columns" -> {{Left}}, "Rows" -> {{Baseline}}},
+                  
+                  GridBoxItemSize->{
+                   "Columns" -> {{Automatic}}, "Rows" -> {{Automatic}}},
+                  GridBoxSpacings->{"Columns" -> {{0}}, "Rows" -> {{0}}}]},
+                {
+                 StyleBox[
+                  PaneBox[GridBox[{
+                    {
+                    RowBox[{
+                    TagBox["\<\"Version (latest): \"\>",
+                    "IconizedLabel"], " ", 
+                    TagBox["\<\"2.0.0\"\>",
+                    "IconizedItem"]}]},
+                    {
+                    TagBox[
+                    
+                    TemplateBox[{
+                    "\"Documentation \[RightGuillemet]\"", 
+                    "https://resources.wolframcloud.com/FunctionRepository/\
+resources/b1a6dce2-6330-4ccc-a5e9-c98e233b2b45/"},
+                    "HyperlinkURL"],
+                    "IconizedItem"]}
+                    },
+                    DefaultBaseStyle->"Column",
+                    GridBoxAlignment->{"Columns" -> {{Left}}},
+                    
+                    GridBoxItemSize->{
+                    "Columns" -> {{Automatic}}, "Rows" -> {{Automatic}}}],
+                   Alignment->Left,
+                   BaselinePosition->Baseline,
+                   FrameMargins->{{5, 4}, {0, 4}}], "DialogStyle",
+                  FontFamily->"Roboto",
+                  FontSize->11]}
+               },
+               BaselinePosition->{1, 1},
+               
+               GridBoxAlignment->{
+                "Columns" -> {{Left}}, "Rows" -> {{Baseline}}},
+               GridBoxDividers->{"Columns" -> {{None}}, "Rows" -> {False, {
+                    GrayLevel[0.8]}, False}},
+               
+               GridBoxItemSize->{
+                "Columns" -> {{Automatic}}, "Rows" -> {{Automatic}}}]}, 
+              Dynamic[Typeset`open],
+              BaselinePosition->Baseline,
+              ImageSize->Automatic],
+             
+             Background->RGBColor[
+              0.9686274509803922, 0.9764705882352941, 0.984313725490196],
+             BaselinePosition->Baseline,
+             DefaultBaseStyle->{},
+             FrameMargins->{{0, 0}, {1, 0}},
+             
+             FrameStyle->RGBColor[
+              0.8313725490196079, 0.8470588235294118, 0.8509803921568627],
+             RoundingRadius->4]],
+           #& ,
+           TagBoxNote->" "],
+          {"FunctionResourceBox", 
+           RGBColor[
+           0.8745098039215686, 0.2784313725490196, 0.03137254901960784], 
+           "HexagonalGridGraph"},
+          TagBoxNote->"FunctionResourceBox"],
+         ResourceFunction["HexagonalGridGraph"],
+         Selectable->False], "[", "gridSize", "]"}]}], ";", 
+      "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{"Get", " ", "vertex", " ", "coordinates"}], " ", "*)"}], 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"vertexCoords", "=", 
+       RowBox[{"GraphEmbedding", "[", "hexGrid", "]"}]}], ";", 
+      "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{"Identify", " ", "hexagonal", " ", "cycles"}], " ", "*)"}], 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"hexagonCycles", "=", 
+       RowBox[{"FindCycle", "[", 
+        RowBox[{"hexGrid", ",", 
+         RowBox[{"{", "6", "}"}], ",", "All"}], "]"}]}], ";", 
+      "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Generate", " ", "random", " ", "integers", " ", "for", " ", "each", " ",
+         "hexagon"}], " ", "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"randomIntegers", "=", 
+       RowBox[{"RandomInteger", "[", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"6", ",", "10"}], "}"}], ",", 
+         RowBox[{"Length", "[", "hexagonCycles", "]"}]}], "]"}]}], ";", 
+      "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Function", " ", "to", " ", "plot", " ", "hexagons", " ", "with", " ", 
+        "labels"}], " ", "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{
+       RowBox[{"plotHexagons", "[", 
+        RowBox[{
+        "cycles_", ",", "vertexCoords_", ",", "randomIntegers_", ",", 
+         "plotLabel_"}], "]"}], ":=", 
+       RowBox[{"Module", "[", 
+        RowBox[{
+         RowBox[{"{", "hexagonLabels", "}"}], ",", "\[IndentingNewLine]", 
+         "\t    ", 
+         RowBox[{
+          RowBox[{"hexagonLabels", "=", 
+           RowBox[{"Table", "[", "\[IndentingNewLine]", "\t      ", 
+            RowBox[{
+             RowBox[{"{", "\[IndentingNewLine]", "\t        ", 
+              RowBox[{
+               RowBox[{"Text", "[", 
+                RowBox[{
+                 RowBox[{"Style", "[", 
+                  RowBox[{"i", ",", "Bold", ",", "14"}], "]"}], ",", 
+                 RowBox[{"Mean", "[", 
+                  RowBox[{"vertexCoords", "[", 
+                   RowBox[{"[", 
+                    RowBox[{"cycles", "[", 
+                    RowBox[{"[", 
+                    RowBox[{"i", ",", "All", ",", "1"}], "]"}], "]"}], "]"}], 
+                   "]"}], "]"}]}], "]"}], ",", "\[IndentingNewLine]", 
+               "\t        ", 
+               RowBox[{"Text", "[", 
+                RowBox[{
+                 RowBox[{"Style", "[", 
+                  RowBox[{
+                   RowBox[{"randomIntegers", "[", 
+                    RowBox[{"[", "i", "]"}], "]"}], ",", "Italic", ",", 
+                   "10"}], "]"}], ",", "\[IndentingNewLine]", "\t          ", 
+                 
+                 RowBox[{
+                  RowBox[{"Mean", "[", 
+                   RowBox[{"vertexCoords", "[", 
+                    RowBox[{"[", 
+                    RowBox[{"cycles", "[", 
+                    RowBox[{"[", 
+                    RowBox[{"i", ",", "All", ",", "1"}], "]"}], "]"}], "]"}], 
+                    "]"}], "]"}], "-", 
+                  RowBox[{"{", 
+                   RowBox[{"0", ",", "0.5"}], "}"}]}]}], "]"}]}], 
+              "\[IndentingNewLine]", "\t      ", "}"}], ",", 
+             "\[IndentingNewLine]", "\t      ", 
+             RowBox[{"{", 
+              RowBox[{"i", ",", 
+               RowBox[{"Length", "[", "cycles", "]"}]}], "}"}]}], 
+            "\[IndentingNewLine]", "\t    ", "]"}]}], ";", 
+          "\[IndentingNewLine]", "\t    ", 
+          RowBox[{"Graphics", "[", 
+           RowBox[{"{", 
+            RowBox[{
+             RowBox[{"Text", "[", 
+              RowBox[{
+               RowBox[{"Style", "[", 
+                RowBox[{"plotLabel", ",", "Bold", ",", "20"}], "]"}], ",", 
+               RowBox[{"{", 
+                RowBox[{
+                 RowBox[{"-", "3"}], ",", 
+                 RowBox[{"-", "2"}]}], "}"}]}], "]"}], ",", 
+             RowBox[{"EdgeForm", "[", "Black", "]"}], ",", 
+             RowBox[{"FaceForm", "[", "]"}], ",", "\[IndentingNewLine]", 
+             "\t      ", 
+             RowBox[{
+              RowBox[{
+               RowBox[{"Polygon", "[", 
+                RowBox[{"vertexCoords", "[", 
+                 RowBox[{"[", "#", "]"}], "]"}], "]"}], " ", "&"}], " ", "/@",
+               " ", 
+              RowBox[{"(", 
+               RowBox[{"cycles", "[", 
+                RowBox[{"[", 
+                 RowBox[{"All", ",", "All", ",", "1"}], "]"}], "]"}], ")"}]}],
+              ",", "hexagonLabels"}], "}"}], "]"}]}]}], "\[IndentingNewLine]",
+         "\t  ", "]"}]}], ";", "\[IndentingNewLine]", "\t  ", 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{"Plot", " ", "hexagons", " ", "before", " ", "swap"}], " ", 
+       "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"plotBefore", "=", 
+       RowBox[{"plotHexagons", "[", 
+        RowBox[{
+        "hexagonCycles", ",", "vertexCoords", ",", "randomIntegers", 
+         ",", "\"\<Before Swap\>\""}], "]"}]}], ";", "\[IndentingNewLine]", 
+      "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Function", " ", "to", " ", "find", " ", "adjacent", " ", "hexagons", " ",
+         "for", " ", "a", " ", "given", " ", "hexagon"}], " ", "*)"}], 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{
+       RowBox[{"findAdjacentHexagons", "[", "hexagonIndex_", "]"}], ":=", 
+       RowBox[{"Module", "[", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"hexagonVertices", ",", "adjacentHexagons"}], "}"}], ",", 
+         "\[IndentingNewLine]", "\t    ", 
+         RowBox[{
+          RowBox[{"hexagonVertices", "=", 
+           RowBox[{"hexagonCycles", "[", 
+            RowBox[{"[", 
+             RowBox[{"hexagonIndex", ",", "All", ",", "1"}], "]"}], "]"}]}], ";",
+           "\[IndentingNewLine]", "\t    ", 
+          RowBox[{"adjacentHexagons", "=", 
+           RowBox[{"Select", "[", 
+            RowBox[{
+             RowBox[{"Range", "[", 
+              RowBox[{"Length", "[", "hexagonCycles", "]"}], "]"}], ",", 
+             "\[IndentingNewLine]", "\t      ", 
+             RowBox[{
+              RowBox[{
+               RowBox[{
+                RowBox[{"Intersection", "[", 
+                 RowBox[{
+                  RowBox[{"hexagonCycles", "[", 
+                   RowBox[{"[", 
+                    RowBox[{"#", ",", "All", ",", "1"}], "]"}], "]"}], ",", 
+                  "hexagonVertices"}], "]"}], "=!=", 
+                RowBox[{"{", "}"}]}], "&&", 
+               RowBox[{"#", "!=", "hexagonIndex"}]}], " ", "&"}]}], "]"}]}], ";",
+           "\[IndentingNewLine]", "\t    ", "adjacentHexagons"}]}], 
+        "\[IndentingNewLine]", "\t  ", "]"}]}], ";", "\[IndentingNewLine]", 
+      "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "List", " ", "of", " ", "adjacent", " ", "hexagons", " ", "for", " ", 
+        "each", " ", "hexagon"}], " ", "*)"}], "\[IndentingNewLine]", "\t  ", 
+      
+      RowBox[{"adjacentHexagonsList", "=", 
+       RowBox[{"findAdjacentHexagons", " ", "/@", " ", 
+        RowBox[{"Range", "[", 
+         RowBox[{"Length", "[", "hexagonCycles", "]"}], "]"}]}]}], ";", 
+      "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Function", " ", "to", " ", "swap", " ", "two", " ", "hexagons", " ", 
+        "and", " ", "return", " ", "swapped", " ", "indices"}], " ", "*)"}], 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{
+       RowBox[{"swapHexagons", "[", "hexagonIndex_", "]"}], ":=", 
+       RowBox[{"Module", "[", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"adjacent", ",", "swapIndex"}], "}"}], ",", 
+         "\[IndentingNewLine]", "\t    ", 
+         RowBox[{
+          RowBox[{"adjacent", "=", 
+           RowBox[{"adjacentHexagonsList", "[", 
+            RowBox[{"[", "hexagonIndex", "]"}], "]"}]}], ";", 
+          "\[IndentingNewLine]", "\t    ", 
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"Length", "[", "adjacent", "]"}], ">", "0"}], ",", 
+            "\[IndentingNewLine]", "\t      ", 
+            RowBox[{
+             RowBox[{"swapIndex", "=", 
+              RowBox[{"RandomChoice", "[", "adjacent", "]"}]}], ";", 
+             "\[IndentingNewLine]", "\t      ", 
+             RowBox[{"(*", " ", 
+              RowBox[{
+              "Swap", " ", "the", " ", "positions", " ", "of", " ", 
+               "hexagonIndex", " ", "and", " ", "swapIndex", " ", "in", " ", 
+               "hexagonCycles"}], " ", "*)"}], "\[IndentingNewLine]", 
+             "\t      ", 
+             RowBox[{
+              RowBox[{"hexagonCycles", "[", 
+               RowBox[{"[", 
+                RowBox[{"{", 
+                 RowBox[{"hexagonIndex", ",", "swapIndex"}], "}"}], "]"}], 
+               "]"}], "=", 
+              RowBox[{"hexagonCycles", "[", 
+               RowBox[{"[", 
+                RowBox[{"{", 
+                 RowBox[{"swapIndex", ",", "hexagonIndex"}], "}"}], "]"}], 
+               "]"}]}], ";", "\[IndentingNewLine]", "\t      ", 
+             RowBox[{"(*", " ", 
+              RowBox[{
+              "Return", " ", "the", " ", "indices", " ", "of", " ", "the", " ",
+                "swapped", " ", "hexagons"}], " ", "*)"}], 
+             "\[IndentingNewLine]", "\t      ", 
+             RowBox[{"{", 
+              RowBox[{"hexagonIndex", ",", "swapIndex"}], "}"}]}], ",", 
+            "\[IndentingNewLine]", 
+            "\t      ", "\"\<No adjacent hexagons to swap\>\""}], 
+           "\[IndentingNewLine]", "\t    ", "]"}]}]}], "\[IndentingNewLine]", 
+        "\t  ", "]"}]}], ";", "\[IndentingNewLine]", "\t  ", 
+      "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Randomly", " ", "select", " ", "a", " ", "hexagon", " ", "and", " ", 
+        "swap", " ", "it", " ", "with", " ", "an", " ", "adjacent", " ", 
+        "hexagon"}], " ", "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"swappedHexagons", "=", 
+       RowBox[{"swapHexagons", "[", 
+        RowBox[{"RandomInteger", "[", 
+         RowBox[{"{", 
+          RowBox[{"1", ",", 
+           RowBox[{"Length", "[", "hexagonCycles", "]"}]}], "}"}], "]"}], 
+        "]"}]}], ";", "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", 
+      "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Print", " ", "the", " ", "indices", " ", "of", " ", "the", " ", 
+        "swapped", " ", "hexagons"}], " ", "*)"}], "\[IndentingNewLine]", 
+      "\t  ", 
+      RowBox[{"Print", "[", 
+       RowBox[{"\"\<Swapped Hexagons: \>\"", ",", "swappedHexagons"}], "]"}], 
+      ";", "\[IndentingNewLine]", "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{"Plot", " ", "hexagons", " ", "after", " ", "swap"}], " ", 
+       "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"plotAfter", "=", 
+       RowBox[{"plotHexagons", "[", 
+        RowBox[{
+        "hexagonCycles", ",", "vertexCoords", ",", "randomIntegers", 
+         ",", "\"\<After Swap\>\""}], "]"}]}], ";", "\[IndentingNewLine]", 
+      "\t  ", "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"(*", " ", 
+       RowBox[{
+       "Display", " ", "plots", " ", "before", " ", "and", " ", "after", " ", 
+        "swap"}], " ", "*)"}], "\[IndentingNewLine]", "\t  ", 
+      RowBox[{"{", 
+       RowBox[{"plotBefore", ",", "plotAfter"}], "}"}]}]}], 
+    "\[IndentingNewLine]", "\t", "]"}]}], "\[IndentingNewLine]", "\t", 
+  "\[IndentingNewLine]", "\t", 
+  RowBox[{"(*", " ", 
+   RowBox[{"Example", " ", "usage"}], " ", "*)"}]}], "\[IndentingNewLine]", 
+ RowBox[{"\t", 
+  RowBox[{"swapAmphiphiles", "[", 
+   RowBox[{"{", 
+    RowBox[{"5", ",", "5"}], "}"}], "]"}]}]}], "Input",
+ CellChangeTimes->{3.963521374996117*^9},
+ CellLabel->"In[3]:=",ExpressionUUID->"455221cd-8a4c-4834-b7da-ed6310723b93"],
+
+Cell[BoxData[
+ InterpretationBox[
+  RowBox[{"\<\"Swapped Hexagons: \"\>", "\[InvisibleSpace]", 
+   RowBox[{"{", 
+    RowBox[{"8", ",", "7"}], "}"}]}],
+  SequenceForm["Swapped Hexagons: ", {8, 7}],
+  Editable->False]], "Print",
+ CellChangeTimes->{3.963772520555661*^9},
+ CellLabel->
+  "During evaluation of \
+In[3]:=",ExpressionUUID->"b2452f57-9e8a-442f-9a72-3b47da3cabdf"],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{
+   GraphicsBox[{InsetBox[
+      StyleBox["\<\"Before Swap\"\>",
+       StripOnInput->False,
+       FontSize->20,
+       FontWeight->Bold], {-3, -2}], 
+     {EdgeForm[GrayLevel[0]], FaceForm[
+      None], {PolygonBox[
+        NCache[{{12 3^Rational[1, 2], 12}, {13 3^Rational[1, 2], 11}, {
+          14 3^Rational[1, 2], 12}, {14 3^Rational[1, 2], 14}, {
+          13 3^Rational[1, 2], 15}, {12 3^Rational[1, 2], 14}}, {{
+          20.784609690826528`, 12}, {22.516660498395403`, 11}, {
+          24.24871130596428, 12}, {24.24871130596428, 14}, {
+          22.516660498395403`, 15}, {20.784609690826528`, 14}}]], 
+       PolygonBox[
+        NCache[{{12 3^Rational[1, 2], 8}, {13 3^Rational[1, 2], 9}, {
+          13 3^Rational[1, 2], 11}, {12 3^Rational[1, 2], 12}, {
+          11 3^Rational[1, 2], 11}, {11 3^Rational[1, 2], 9}}, {{
+          20.784609690826528`, 8}, {22.516660498395403`, 9}, {
+          22.516660498395403`, 11}, {20.784609690826528`, 12}, {
+          19.05255888325765, 11}, {19.05255888325765, 9}}]], 
+       PolygonBox[
+        NCache[{{11 3^Rational[1, 2], 15}, {12 3^Rational[1, 2], 14}, {
+          12 3^Rational[1, 2], 12}, {11 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {10 3^Rational[1, 2], 14}}, {{
+          19.05255888325765, 15}, {20.784609690826528`, 14}, {
+          20.784609690826528`, 12}, {19.05255888325765, 11}, {
+          17.32050807568877, 12}, {17.32050807568877, 14}}]], 
+       PolygonBox[
+        NCache[{{10 3^Rational[1, 2], 8}, {10 3^Rational[1, 2], 6}, {
+          11 3^Rational[1, 2], 5}, {12 3^Rational[1, 2], 6}, {
+          12 3^Rational[1, 2], 8}, {11 3^Rational[1, 2], 9}}, {{
+          17.32050807568877, 8}, {17.32050807568877, 6}, {
+          19.05255888325765, 5}, {20.784609690826528`, 6}, {
+          20.784609690826528`, 8}, {19.05255888325765, 9}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 9}, {10 3^Rational[1, 2], 8}, {
+          11 3^Rational[1, 2], 9}, {11 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {9 3^Rational[1, 2], 11}}, {{
+          15.588457268119894`, 9}, {17.32050807568877, 8}, {
+          19.05255888325765, 9}, {19.05255888325765, 11}, {
+          17.32050807568877, 12}, {15.588457268119894`, 11}}]], 
+       PolygonBox[
+        NCache[{{7 3^Rational[1, 2], 5}, {8 3^Rational[1, 2], 6}, {
+          8 3^Rational[1, 2], 8}, {7 3^Rational[1, 2], 9}, {
+          6 3^Rational[1, 2], 8}, {6 3^Rational[1, 2], 6}}, {{
+          12.12435565298214, 5}, {13.856406460551018`, 6}, {
+          13.856406460551018`, 8}, {12.12435565298214, 9}, {
+          10.392304845413264`, 8}, {10.392304845413264`, 6}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 9}, {10 3^Rational[1, 2], 8}, {
+          10 3^Rational[1, 2], 6}, {9 3^Rational[1, 2], 5}, {
+          8 3^Rational[1, 2], 6}, {8 3^Rational[1, 2], 8}}, {{
+          15.588457268119894`, 9}, {17.32050807568877, 8}, {
+          17.32050807568877, 6}, {15.588457268119894`, 5}, {
+          13.856406460551018`, 6}, {13.856406460551018`, 8}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 3}, {10 3^Rational[1, 2], 2}, {
+          11 3^Rational[1, 2], 3}, {11 3^Rational[1, 2], 5}, {
+          10 3^Rational[1, 2], 6}, {9 3^Rational[1, 2], 5}}, {{
+          15.588457268119894`, 3}, {17.32050807568877, 2}, {
+          19.05255888325765, 3}, {19.05255888325765, 5}, {
+          17.32050807568877, 6}, {15.588457268119894`, 5}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          7 3^Rational[1, 2], 9}, {8 3^Rational[1, 2], 8}, {
+          9 3^Rational[1, 2], 9}, {9 3^Rational[1, 2], 11}}, {{
+          13.856406460551018`, 12}, {12.12435565298214, 11}, {
+          12.12435565298214, 9}, {13.856406460551018`, 8}, {
+          15.588457268119894`, 9}, {15.588457268119894`, 11}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 2}, {9 3^Rational[1, 2], 3}, {
+          9 3^Rational[1, 2], 5}, {8 3^Rational[1, 2], 6}, {
+          7 3^Rational[1, 2], 5}, {7 3^Rational[1, 2], 3}}, {{
+          13.856406460551018`, 2}, {15.588457268119894`, 3}, {
+          15.588457268119894`, 5}, {13.856406460551018`, 6}, {
+          12.12435565298214, 5}, {12.12435565298214, 3}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 12}, {9 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {10 3^Rational[1, 2], 14}, {
+          9 3^Rational[1, 2], 15}, {8 3^Rational[1, 2], 14}}, {{
+          13.856406460551018`, 12}, {15.588457268119894`, 11}, {
+          17.32050807568877, 12}, {17.32050807568877, 14}, {
+          15.588457268119894`, 15}, {13.856406460551018`, 14}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 0}, {9 3^Rational[1, 2], -1}, {
+          10 3^Rational[1, 2], 0}, {10 3^Rational[1, 2], 2}, {
+          9 3^Rational[1, 2], 3}, {8 3^Rational[1, 2], 2}}, {{
+          13.856406460551018`, 0}, {15.588457268119894`, -1}, {
+          17.32050807568877, 0}, {17.32050807568877, 2}, {
+          15.588457268119894`, 3}, {13.856406460551018`, 2}}]], 
+       PolygonBox[
+        NCache[{{6 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          8 3^Rational[1, 2], 12}, {8 3^Rational[1, 2], 14}, {
+          7 3^Rational[1, 2], 15}, {6 3^Rational[1, 2], 14}}, {{
+          10.392304845413264`, 12}, {12.12435565298214, 11}, {
+          13.856406460551018`, 12}, {13.856406460551018`, 14}, {
+          12.12435565298214, 15}, {10.392304845413264`, 14}}]], 
+       PolygonBox[
+        NCache[{{6 3^Rational[1, 2], 2}, {7 3^Rational[1, 2], 3}, {
+          8 3^Rational[1, 2], 2}, {8 3^Rational[1, 2], 0}, {
+          7 3^Rational[1, 2], -1}, {6 3^Rational[1, 2], 0}}, {{
+          10.392304845413264`, 2}, {12.12435565298214, 3}, {
+          13.856406460551018`, 2}, {13.856406460551018`, 0}, {
+          12.12435565298214, -1}, {10.392304845413264`, 0}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], 9}, {5 3^Rational[1, 2], 11}, {
+          6 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          7 3^Rational[1, 2], 9}, {6 3^Rational[1, 2], 8}}, {{
+          8.660254037844386, 9}, {8.660254037844386, 11}, {
+          10.392304845413264`, 12}, {12.12435565298214, 11}, {
+          12.12435565298214, 9}, {10.392304845413264`, 8}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {4 3^Rational[1, 2], 8}, {
+          5 3^Rational[1, 2], 9}, {6 3^Rational[1, 2], 8}, {
+          6 3^Rational[1, 2], 6}, {5 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {6.928203230275509, 8}, {
+          8.660254037844386, 9}, {10.392304845413264`, 8}, {
+          10.392304845413264`, 6}, {8.660254037844386, 5}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], 3}, {5 3^Rational[1, 2], 5}, {
+          6 3^Rational[1, 2], 6}, {7 3^Rational[1, 2], 5}, {
+          7 3^Rational[1, 2], 3}, {6 3^Rational[1, 2], 2}}, {{
+          8.660254037844386, 3}, {8.660254037844386, 5}, {
+          10.392304845413264`, 6}, {12.12435565298214, 5}, {
+          12.12435565298214, 3}, {10.392304845413264`, 2}}]], 
+       PolygonBox[
+        NCache[{{2 3^Rational[1, 2], 2}, {2 3^Rational[1, 2], 0}, {
+          3 3^Rational[1, 2], -1}, {4 3^Rational[1, 2], 0}, {
+          4 3^Rational[1, 2], 2}, {3 3^Rational[1, 2], 3}}, {{
+          3.4641016151377544`, 2}, {3.4641016151377544`, 0}, {
+          5.196152422706632, -1}, {6.928203230275509, 0}, {
+          6.928203230275509, 2}, {5.196152422706632, 3}}]], 
+       PolygonBox[
+        NCache[{{3^Rational[1, 2], 3}, {2 3^Rational[1, 2], 2}, {
+          3 3^Rational[1, 2], 3}, {3 3^Rational[1, 2], 5}, {
+          2 3^Rational[1, 2], 6}, {3^Rational[1, 2], 5}}, {{
+          1.7320508075688772`, 3}, {3.4641016151377544`, 2}, {
+          5.196152422706632, 3}, {5.196152422706632, 5}, {
+          3.4641016151377544`, 6}, {1.7320508075688772`, 5}}]], 
+       PolygonBox[
+        NCache[{{3 3^Rational[1, 2], 11}, {4 3^Rational[1, 2], 12}, {
+          5 3^Rational[1, 2], 11}, {5 3^Rational[1, 2], 9}, {
+          4 3^Rational[1, 2], 8}, {3 3^Rational[1, 2], 9}}, {{
+          5.196152422706632, 11}, {6.928203230275509, 12}, {
+          8.660254037844386, 11}, {8.660254037844386, 9}, {
+          6.928203230275509, 8}, {5.196152422706632, 9}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {5 3^Rational[1, 2], 5}, {
+          5 3^Rational[1, 2], 3}, {4 3^Rational[1, 2], 2}, {
+          3 3^Rational[1, 2], 3}, {3 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {8.660254037844386, 5}, {
+          8.660254037844386, 3}, {6.928203230275509, 2}, {
+          5.196152422706632, 3}, {5.196152422706632, 5}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {4 3^Rational[1, 2], 8}, {
+          3 3^Rational[1, 2], 9}, {2 3^Rational[1, 2], 8}, {
+          2 3^Rational[1, 2], 6}, {3 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {6.928203230275509, 8}, {
+          5.196152422706632, 9}, {3.4641016151377544`, 8}, {
+          3.4641016151377544`, 6}, {5.196152422706632, 5}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 14}, {5 3^Rational[1, 2], 15}, {
+          6 3^Rational[1, 2], 14}, {6 3^Rational[1, 2], 12}, {
+          5 3^Rational[1, 2], 11}, {4 3^Rational[1, 2], 12}}, {{
+          6.928203230275509, 14}, {8.660254037844386, 15}, {
+          10.392304845413264`, 14}, {10.392304845413264`, 12}, {
+          8.660254037844386, 11}, {6.928203230275509, 12}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], -1}, {6 3^Rational[1, 2], 0}, {
+          6 3^Rational[1, 2], 2}, {5 3^Rational[1, 2], 3}, {
+          4 3^Rational[1, 2], 2}, {4 3^Rational[1, 2], 0}}, {{
+          8.660254037844386, -1}, {10.392304845413264`, 0}, {
+          10.392304845413264`, 2}, {8.660254037844386, 3}, {
+          6.928203230275509, 2}, {6.928203230275509, 0}}]], 
+       PolygonBox[
+        NCache[{{0, 0}, {0, 2}, {3^Rational[1, 2], 3}, {
+          2 3^Rational[1, 2], 2}, {2 3^Rational[1, 2], 0}, {
+          3^Rational[1, 2], -1}}, {{0, 0}, {0, 2}, {1.7320508075688772`, 3}, {
+          3.4641016151377544`, 2}, {3.4641016151377544`, 0}, {
+          1.7320508075688772`, -1}}]]}, {{InsetBox[
+         StyleBox["1",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{13 3^Rational[1, 2], 13}, {22.516660498395403`, 13}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{13 3^Rational[1, 2], 12.5}, {22.516660498395403`, 12.5}]]}, {
+        InsetBox[
+         StyleBox["2",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{12 3^Rational[1, 2], 10}, {20.784609690826528`, 10}]], 
+        InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{12 3^Rational[1, 2], 9.5}, {20.784609690826528`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["3",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{11 3^Rational[1, 2], 13}, {19.05255888325765, 13}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{11 3^Rational[1, 2], 12.5}, {19.05255888325765, 12.5}]]}, {
+        InsetBox[
+         StyleBox["4",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{11 3^Rational[1, 2], 7}, {19.05255888325765, 7}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{11 3^Rational[1, 2], 6.5}, {19.05255888325765, 6.5}]]}, {
+        InsetBox[
+         StyleBox["5",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{10 3^Rational[1, 2], 10}, {17.32050807568877, 10}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{10 3^Rational[1, 2], 9.5}, {17.32050807568877, 9.5}]]}, {
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 7}, {12.12435565298214, 7}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 6.5}, {12.12435565298214, 6.5}]]}, {
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 7}, {15.588457268119894`, 7}]], 
+        InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 6.5}, {15.588457268119894`, 6.5}]]}, {
+        InsetBox[
+         StyleBox["8",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{10 3^Rational[1, 2], 4}, {17.32050807568877, 4}]], InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{10 3^Rational[1, 2], 3.5}, {17.32050807568877, 3.5}]]}, {
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{8 3^Rational[1, 2], 10}, {13.856406460551018`, 10}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{8 3^Rational[1, 2], 9.5}, {13.856406460551018`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{8 3^Rational[1, 2], 4}, {13.856406460551018`, 4}]], 
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{8 3^Rational[1, 2], 3.5}, {13.856406460551018`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["11",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 13}, {15.588457268119894`, 13}]], 
+        InsetBox[
+         StyleBox["8",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 12.5}, {15.588457268119894`, 12.5}]]}, {
+        InsetBox[
+         StyleBox["12",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 1}, {15.588457268119894`, 1}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 0.5}, {15.588457268119894`, 0.5}]]}, {
+        InsetBox[
+         StyleBox["13",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 13}, {12.12435565298214, 13}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 12.5}, {12.12435565298214, 12.5}]]}, {
+        InsetBox[
+         StyleBox["14",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 1}, {12.12435565298214, 1}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 0.5}, {12.12435565298214, 0.5}]]}, {
+        InsetBox[
+         StyleBox["15",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{6 3^Rational[1, 2], 10}, {10.392304845413264`, 10}]], 
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{6 3^Rational[1, 2], 9.5}, {10.392304845413264`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["16",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 7}, {8.660254037844386, 7}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 6.5}, {8.660254037844386, 6.5}]]}, {
+        InsetBox[
+         StyleBox["17",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{6 3^Rational[1, 2], 4}, {10.392304845413264`, 4}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{6 3^Rational[1, 2], 3.5}, {10.392304845413264`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["18",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3 3^Rational[1, 2], 1}, {5.196152422706632, 1}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3 3^Rational[1, 2], 0.5}, {5.196152422706632, 0.5}]]}, {
+        InsetBox[
+         StyleBox["19",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{2 3^Rational[1, 2], 4}, {3.4641016151377544`, 4}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{2 3^Rational[1, 2], 3.5}, {3.4641016151377544`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["20",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{4 3^Rational[1, 2], 10}, {6.928203230275509, 10}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{4 3^Rational[1, 2], 9.5}, {6.928203230275509, 9.5}]]}, {
+        InsetBox[
+         StyleBox["21",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{4 3^Rational[1, 2], 4}, {6.928203230275509, 4}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{4 3^Rational[1, 2], 3.5}, {6.928203230275509, 3.5}]]}, {
+        InsetBox[
+         StyleBox["22",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3 3^Rational[1, 2], 7}, {5.196152422706632, 7}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3 3^Rational[1, 2], 6.5}, {5.196152422706632, 6.5}]]}, {
+        InsetBox[
+         StyleBox["23",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 13}, {8.660254037844386, 13}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 12.5}, {8.660254037844386, 12.5}]]}, {
+        InsetBox[
+         StyleBox["24",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 1}, {8.660254037844386, 1}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 0.5}, {8.660254037844386, 0.5}]]}, {
+        InsetBox[
+         StyleBox["25",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3^Rational[1, 2], 1}, {1.7320508075688772`, 1}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3^Rational[1, 2], 0.5}, {1.7320508075688772`, 0.5}]]}}}},
+    ImageSize->{567.54296875, Automatic}], ",", 
+   GraphicsBox[{InsetBox[
+      StyleBox["\<\"After Swap\"\>",
+       StripOnInput->False,
+       FontSize->20,
+       FontWeight->Bold], {-3, -2}], 
+     {EdgeForm[GrayLevel[0]], FaceForm[
+      None], {PolygonBox[
+        NCache[{{12 3^Rational[1, 2], 12}, {13 3^Rational[1, 2], 11}, {
+          14 3^Rational[1, 2], 12}, {14 3^Rational[1, 2], 14}, {
+          13 3^Rational[1, 2], 15}, {12 3^Rational[1, 2], 14}}, {{
+          20.784609690826528`, 12}, {22.516660498395403`, 11}, {
+          24.24871130596428, 12}, {24.24871130596428, 14}, {
+          22.516660498395403`, 15}, {20.784609690826528`, 14}}]], 
+       PolygonBox[
+        NCache[{{12 3^Rational[1, 2], 8}, {13 3^Rational[1, 2], 9}, {
+          13 3^Rational[1, 2], 11}, {12 3^Rational[1, 2], 12}, {
+          11 3^Rational[1, 2], 11}, {11 3^Rational[1, 2], 9}}, {{
+          20.784609690826528`, 8}, {22.516660498395403`, 9}, {
+          22.516660498395403`, 11}, {20.784609690826528`, 12}, {
+          19.05255888325765, 11}, {19.05255888325765, 9}}]], 
+       PolygonBox[
+        NCache[{{11 3^Rational[1, 2], 15}, {12 3^Rational[1, 2], 14}, {
+          12 3^Rational[1, 2], 12}, {11 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {10 3^Rational[1, 2], 14}}, {{
+          19.05255888325765, 15}, {20.784609690826528`, 14}, {
+          20.784609690826528`, 12}, {19.05255888325765, 11}, {
+          17.32050807568877, 12}, {17.32050807568877, 14}}]], 
+       PolygonBox[
+        NCache[{{10 3^Rational[1, 2], 8}, {10 3^Rational[1, 2], 6}, {
+          11 3^Rational[1, 2], 5}, {12 3^Rational[1, 2], 6}, {
+          12 3^Rational[1, 2], 8}, {11 3^Rational[1, 2], 9}}, {{
+          17.32050807568877, 8}, {17.32050807568877, 6}, {
+          19.05255888325765, 5}, {20.784609690826528`, 6}, {
+          20.784609690826528`, 8}, {19.05255888325765, 9}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 9}, {10 3^Rational[1, 2], 8}, {
+          11 3^Rational[1, 2], 9}, {11 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {9 3^Rational[1, 2], 11}}, {{
+          15.588457268119894`, 9}, {17.32050807568877, 8}, {
+          19.05255888325765, 9}, {19.05255888325765, 11}, {
+          17.32050807568877, 12}, {15.588457268119894`, 11}}]], 
+       PolygonBox[
+        NCache[{{7 3^Rational[1, 2], 5}, {8 3^Rational[1, 2], 6}, {
+          8 3^Rational[1, 2], 8}, {7 3^Rational[1, 2], 9}, {
+          6 3^Rational[1, 2], 8}, {6 3^Rational[1, 2], 6}}, {{
+          12.12435565298214, 5}, {13.856406460551018`, 6}, {
+          13.856406460551018`, 8}, {12.12435565298214, 9}, {
+          10.392304845413264`, 8}, {10.392304845413264`, 6}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 3}, {10 3^Rational[1, 2], 2}, {
+          11 3^Rational[1, 2], 3}, {11 3^Rational[1, 2], 5}, {
+          10 3^Rational[1, 2], 6}, {9 3^Rational[1, 2], 5}}, {{
+          15.588457268119894`, 3}, {17.32050807568877, 2}, {
+          19.05255888325765, 3}, {19.05255888325765, 5}, {
+          17.32050807568877, 6}, {15.588457268119894`, 5}}]], 
+       PolygonBox[
+        NCache[{{9 3^Rational[1, 2], 9}, {10 3^Rational[1, 2], 8}, {
+          10 3^Rational[1, 2], 6}, {9 3^Rational[1, 2], 5}, {
+          8 3^Rational[1, 2], 6}, {8 3^Rational[1, 2], 8}}, {{
+          15.588457268119894`, 9}, {17.32050807568877, 8}, {
+          17.32050807568877, 6}, {15.588457268119894`, 5}, {
+          13.856406460551018`, 6}, {13.856406460551018`, 8}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          7 3^Rational[1, 2], 9}, {8 3^Rational[1, 2], 8}, {
+          9 3^Rational[1, 2], 9}, {9 3^Rational[1, 2], 11}}, {{
+          13.856406460551018`, 12}, {12.12435565298214, 11}, {
+          12.12435565298214, 9}, {13.856406460551018`, 8}, {
+          15.588457268119894`, 9}, {15.588457268119894`, 11}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 2}, {9 3^Rational[1, 2], 3}, {
+          9 3^Rational[1, 2], 5}, {8 3^Rational[1, 2], 6}, {
+          7 3^Rational[1, 2], 5}, {7 3^Rational[1, 2], 3}}, {{
+          13.856406460551018`, 2}, {15.588457268119894`, 3}, {
+          15.588457268119894`, 5}, {13.856406460551018`, 6}, {
+          12.12435565298214, 5}, {12.12435565298214, 3}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 12}, {9 3^Rational[1, 2], 11}, {
+          10 3^Rational[1, 2], 12}, {10 3^Rational[1, 2], 14}, {
+          9 3^Rational[1, 2], 15}, {8 3^Rational[1, 2], 14}}, {{
+          13.856406460551018`, 12}, {15.588457268119894`, 11}, {
+          17.32050807568877, 12}, {17.32050807568877, 14}, {
+          15.588457268119894`, 15}, {13.856406460551018`, 14}}]], 
+       PolygonBox[
+        NCache[{{8 3^Rational[1, 2], 0}, {9 3^Rational[1, 2], -1}, {
+          10 3^Rational[1, 2], 0}, {10 3^Rational[1, 2], 2}, {
+          9 3^Rational[1, 2], 3}, {8 3^Rational[1, 2], 2}}, {{
+          13.856406460551018`, 0}, {15.588457268119894`, -1}, {
+          17.32050807568877, 0}, {17.32050807568877, 2}, {
+          15.588457268119894`, 3}, {13.856406460551018`, 2}}]], 
+       PolygonBox[
+        NCache[{{6 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          8 3^Rational[1, 2], 12}, {8 3^Rational[1, 2], 14}, {
+          7 3^Rational[1, 2], 15}, {6 3^Rational[1, 2], 14}}, {{
+          10.392304845413264`, 12}, {12.12435565298214, 11}, {
+          13.856406460551018`, 12}, {13.856406460551018`, 14}, {
+          12.12435565298214, 15}, {10.392304845413264`, 14}}]], 
+       PolygonBox[
+        NCache[{{6 3^Rational[1, 2], 2}, {7 3^Rational[1, 2], 3}, {
+          8 3^Rational[1, 2], 2}, {8 3^Rational[1, 2], 0}, {
+          7 3^Rational[1, 2], -1}, {6 3^Rational[1, 2], 0}}, {{
+          10.392304845413264`, 2}, {12.12435565298214, 3}, {
+          13.856406460551018`, 2}, {13.856406460551018`, 0}, {
+          12.12435565298214, -1}, {10.392304845413264`, 0}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], 9}, {5 3^Rational[1, 2], 11}, {
+          6 3^Rational[1, 2], 12}, {7 3^Rational[1, 2], 11}, {
+          7 3^Rational[1, 2], 9}, {6 3^Rational[1, 2], 8}}, {{
+          8.660254037844386, 9}, {8.660254037844386, 11}, {
+          10.392304845413264`, 12}, {12.12435565298214, 11}, {
+          12.12435565298214, 9}, {10.392304845413264`, 8}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {4 3^Rational[1, 2], 8}, {
+          5 3^Rational[1, 2], 9}, {6 3^Rational[1, 2], 8}, {
+          6 3^Rational[1, 2], 6}, {5 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {6.928203230275509, 8}, {
+          8.660254037844386, 9}, {10.392304845413264`, 8}, {
+          10.392304845413264`, 6}, {8.660254037844386, 5}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], 3}, {5 3^Rational[1, 2], 5}, {
+          6 3^Rational[1, 2], 6}, {7 3^Rational[1, 2], 5}, {
+          7 3^Rational[1, 2], 3}, {6 3^Rational[1, 2], 2}}, {{
+          8.660254037844386, 3}, {8.660254037844386, 5}, {
+          10.392304845413264`, 6}, {12.12435565298214, 5}, {
+          12.12435565298214, 3}, {10.392304845413264`, 2}}]], 
+       PolygonBox[
+        NCache[{{2 3^Rational[1, 2], 2}, {2 3^Rational[1, 2], 0}, {
+          3 3^Rational[1, 2], -1}, {4 3^Rational[1, 2], 0}, {
+          4 3^Rational[1, 2], 2}, {3 3^Rational[1, 2], 3}}, {{
+          3.4641016151377544`, 2}, {3.4641016151377544`, 0}, {
+          5.196152422706632, -1}, {6.928203230275509, 0}, {
+          6.928203230275509, 2}, {5.196152422706632, 3}}]], 
+       PolygonBox[
+        NCache[{{3^Rational[1, 2], 3}, {2 3^Rational[1, 2], 2}, {
+          3 3^Rational[1, 2], 3}, {3 3^Rational[1, 2], 5}, {
+          2 3^Rational[1, 2], 6}, {3^Rational[1, 2], 5}}, {{
+          1.7320508075688772`, 3}, {3.4641016151377544`, 2}, {
+          5.196152422706632, 3}, {5.196152422706632, 5}, {
+          3.4641016151377544`, 6}, {1.7320508075688772`, 5}}]], 
+       PolygonBox[
+        NCache[{{3 3^Rational[1, 2], 11}, {4 3^Rational[1, 2], 12}, {
+          5 3^Rational[1, 2], 11}, {5 3^Rational[1, 2], 9}, {
+          4 3^Rational[1, 2], 8}, {3 3^Rational[1, 2], 9}}, {{
+          5.196152422706632, 11}, {6.928203230275509, 12}, {
+          8.660254037844386, 11}, {8.660254037844386, 9}, {
+          6.928203230275509, 8}, {5.196152422706632, 9}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {5 3^Rational[1, 2], 5}, {
+          5 3^Rational[1, 2], 3}, {4 3^Rational[1, 2], 2}, {
+          3 3^Rational[1, 2], 3}, {3 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {8.660254037844386, 5}, {
+          8.660254037844386, 3}, {6.928203230275509, 2}, {
+          5.196152422706632, 3}, {5.196152422706632, 5}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 6}, {4 3^Rational[1, 2], 8}, {
+          3 3^Rational[1, 2], 9}, {2 3^Rational[1, 2], 8}, {
+          2 3^Rational[1, 2], 6}, {3 3^Rational[1, 2], 5}}, {{
+          6.928203230275509, 6}, {6.928203230275509, 8}, {
+          5.196152422706632, 9}, {3.4641016151377544`, 8}, {
+          3.4641016151377544`, 6}, {5.196152422706632, 5}}]], 
+       PolygonBox[
+        NCache[{{4 3^Rational[1, 2], 14}, {5 3^Rational[1, 2], 15}, {
+          6 3^Rational[1, 2], 14}, {6 3^Rational[1, 2], 12}, {
+          5 3^Rational[1, 2], 11}, {4 3^Rational[1, 2], 12}}, {{
+          6.928203230275509, 14}, {8.660254037844386, 15}, {
+          10.392304845413264`, 14}, {10.392304845413264`, 12}, {
+          8.660254037844386, 11}, {6.928203230275509, 12}}]], 
+       PolygonBox[
+        NCache[{{5 3^Rational[1, 2], -1}, {6 3^Rational[1, 2], 0}, {
+          6 3^Rational[1, 2], 2}, {5 3^Rational[1, 2], 3}, {
+          4 3^Rational[1, 2], 2}, {4 3^Rational[1, 2], 0}}, {{
+          8.660254037844386, -1}, {10.392304845413264`, 0}, {
+          10.392304845413264`, 2}, {8.660254037844386, 3}, {
+          6.928203230275509, 2}, {6.928203230275509, 0}}]], 
+       PolygonBox[
+        NCache[{{0, 0}, {0, 2}, {3^Rational[1, 2], 3}, {
+          2 3^Rational[1, 2], 2}, {2 3^Rational[1, 2], 0}, {
+          3^Rational[1, 2], -1}}, {{0, 0}, {0, 2}, {1.7320508075688772`, 3}, {
+          3.4641016151377544`, 2}, {3.4641016151377544`, 0}, {
+          1.7320508075688772`, -1}}]]}, {{InsetBox[
+         StyleBox["1",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{13 3^Rational[1, 2], 13}, {22.516660498395403`, 13}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{13 3^Rational[1, 2], 12.5}, {22.516660498395403`, 12.5}]]}, {
+        InsetBox[
+         StyleBox["2",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{12 3^Rational[1, 2], 10}, {20.784609690826528`, 10}]], 
+        InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{12 3^Rational[1, 2], 9.5}, {20.784609690826528`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["3",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{11 3^Rational[1, 2], 13}, {19.05255888325765, 13}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{11 3^Rational[1, 2], 12.5}, {19.05255888325765, 12.5}]]}, {
+        InsetBox[
+         StyleBox["4",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{11 3^Rational[1, 2], 7}, {19.05255888325765, 7}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{11 3^Rational[1, 2], 6.5}, {19.05255888325765, 6.5}]]}, {
+        InsetBox[
+         StyleBox["5",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{10 3^Rational[1, 2], 10}, {17.32050807568877, 10}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{10 3^Rational[1, 2], 9.5}, {17.32050807568877, 9.5}]]}, {
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 7}, {12.12435565298214, 7}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 6.5}, {12.12435565298214, 6.5}]]}, {
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{10 3^Rational[1, 2], 4}, {17.32050807568877, 4}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{10 3^Rational[1, 2], 3.5}, {17.32050807568877, 3.5}]]}, {
+        InsetBox[
+         StyleBox["8",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 7}, {15.588457268119894`, 7}]], 
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 6.5}, {15.588457268119894`, 6.5}]]}, {
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{8 3^Rational[1, 2], 10}, {13.856406460551018`, 10}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{8 3^Rational[1, 2], 9.5}, {13.856406460551018`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{8 3^Rational[1, 2], 4}, {13.856406460551018`, 4}]], 
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{8 3^Rational[1, 2], 3.5}, {13.856406460551018`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["11",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 13}, {15.588457268119894`, 13}]], 
+        InsetBox[
+         StyleBox["8",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 12.5}, {15.588457268119894`, 12.5}]]}, {
+        InsetBox[
+         StyleBox["12",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{9 3^Rational[1, 2], 1}, {15.588457268119894`, 1}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{9 3^Rational[1, 2], 0.5}, {15.588457268119894`, 0.5}]]}, {
+        InsetBox[
+         StyleBox["13",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 13}, {12.12435565298214, 13}]], 
+        InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 12.5}, {12.12435565298214, 12.5}]]}, {
+        InsetBox[
+         StyleBox["14",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{7 3^Rational[1, 2], 1}, {12.12435565298214, 1}]], InsetBox[
+         StyleBox["9",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{7 3^Rational[1, 2], 0.5}, {12.12435565298214, 0.5}]]}, {
+        InsetBox[
+         StyleBox["15",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{6 3^Rational[1, 2], 10}, {10.392304845413264`, 10}]], 
+        InsetBox[
+         StyleBox["7",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{6 3^Rational[1, 2], 9.5}, {10.392304845413264`, 9.5}]]}, {
+        InsetBox[
+         StyleBox["16",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 7}, {8.660254037844386, 7}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 6.5}, {8.660254037844386, 6.5}]]}, {
+        InsetBox[
+         StyleBox["17",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{6 3^Rational[1, 2], 4}, {10.392304845413264`, 4}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{6 3^Rational[1, 2], 3.5}, {10.392304845413264`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["18",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3 3^Rational[1, 2], 1}, {5.196152422706632, 1}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3 3^Rational[1, 2], 0.5}, {5.196152422706632, 0.5}]]}, {
+        InsetBox[
+         StyleBox["19",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{2 3^Rational[1, 2], 4}, {3.4641016151377544`, 4}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{2 3^Rational[1, 2], 3.5}, {3.4641016151377544`, 3.5}]]}, {
+        InsetBox[
+         StyleBox["20",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{4 3^Rational[1, 2], 10}, {6.928203230275509, 10}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{4 3^Rational[1, 2], 9.5}, {6.928203230275509, 9.5}]]}, {
+        InsetBox[
+         StyleBox["21",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{4 3^Rational[1, 2], 4}, {6.928203230275509, 4}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{4 3^Rational[1, 2], 3.5}, {6.928203230275509, 3.5}]]}, {
+        InsetBox[
+         StyleBox["22",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3 3^Rational[1, 2], 7}, {5.196152422706632, 7}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3 3^Rational[1, 2], 6.5}, {5.196152422706632, 6.5}]]}, {
+        InsetBox[
+         StyleBox["23",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 13}, {8.660254037844386, 13}]], 
+        InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 12.5}, {8.660254037844386, 12.5}]]}, {
+        InsetBox[
+         StyleBox["24",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{5 3^Rational[1, 2], 1}, {8.660254037844386, 1}]], InsetBox[
+         StyleBox["10",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{5 3^Rational[1, 2], 0.5}, {8.660254037844386, 0.5}]]}, {
+        InsetBox[
+         StyleBox["25",
+          StripOnInput->False,
+          FontSize->14,
+          FontWeight->Bold], 
+         NCache[{3^Rational[1, 2], 1}, {1.7320508075688772`, 1}]], InsetBox[
+         StyleBox["6",
+          StripOnInput->False,
+          FontSize->10,
+          FontSlant->Italic], 
+         NCache[{3^Rational[1, 2], 0.5}, {1.7320508075688772`, 0.5}]]}}}},
+    ImageSize->{522.8515625, Automatic}]}], "}"}]], "Output",
+ CellChangeTimes->{3.9637725205709877`*^9},
+ CellLabel->"Out[4]=",ExpressionUUID->"84d86298-e6f6-4cf5-ab38-b5c097058751"]
+}, Open  ]]
+},
+WindowSize->{808, 599},
+WindowMargins->{{Automatic, -93}, {Automatic, 0}},
+FrontEndVersion->"14.2 for Mac OS X ARM (64-bit) (March 16, 2025)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"8d57f564-0240-4ecd-87e3-e085819913d1"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[576, 22, 21122, 481, 1619, "Input",ExpressionUUID->"455221cd-8a4c-4834-b7da-ed6310723b93"],
+Cell[21701, 505, 372, 10, 23, "Print",ExpressionUUID->"b2452f57-9e8a-442f-9a72-3b47da3cabdf"],
+Cell[22076, 517, 40283, 940, 707, "Output",ExpressionUUID->"84d86298-e6f6-4cf5-ab38-b5c097058751"]
+}, Open  ]]
+}
+]
+*)
+
