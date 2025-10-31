@@ -78,6 +78,10 @@ class Config:
     INIT_CARBON_MAX: int = 20
     LABEL_CARBONS: bool = False
     BORDER: float = 1.0
+    FISSION_MIN_SIZE: int = 4                 
+    FISSION_HEURISTIC: str = "bridge"  
+    FISSION_SIZE_SCALING: str = "linear"
+    FISSION_K0: float = 1.0  
 
     def __post_init__(self):
         if self.SAVE_STEPS is None:
@@ -149,7 +153,6 @@ class Membrane:
                 return anchor, orient, cells
         return None, None, None
 
-from dataclasses import dataclass
 @dataclass
 class Event:
     name: str
@@ -387,6 +390,163 @@ def connected_components_full(mem) -> List[List[int]]:
                     vis[v]=True; q.append(v); group.append(ids[v])
         comps.append(group)
     return comps
+# --------------------------------------------------------------------- #
+# R2_plus_fission (topology-aware raft fission on peptide adjacency)
+
+def _raft_ids_and_adjacency(mem, raft_id:int):
+    """Return (node_ids, adjacency dict) for the induced subgraph of a single raft."""
+    raft_nodes = [pid for pid, p in mem.peptides.items() if p["raft"] == raft_id]
+    if not raft_nodes:
+        return [], {}
+    idx = {pid:i for i, pid in enumerate(raft_nodes)}
+    adj = {pid:set() for pid in raft_nodes}
+    cell2pids = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            cell2pids[c].append(pid)
+    for pid in raft_nodes:
+        p = mem.peptides[pid]
+        seen = set()
+        for (q,r) in rotate_triad(p["cent"], p["orient"]):
+            for dq,dr in AX_NEI:
+                nb = (q+dq, r+dr)
+                if nb in cell2pids:
+                    for pid2 in cell2pids[nb]:
+                        if pid2 != pid and pid2 not in seen and mem.peptides[pid2]["raft"] == raft_id:
+                            adj[pid].add(pid2)
+                            adj[pid2].add(pid)
+                            seen.add(pid2)
+    return raft_nodes, adj
+
+def _bridges_tarjan(nodes, adj):
+    """Tarjan bridges on an undirected graph given by adj: dict[node] -> set(neigh)."""
+    time = 0
+    disc, low, parent = {}, {}, {}
+    bridges = set()
+    def dfs(u):
+        nonlocal time
+        time += 1
+        disc[u] = low[u] = time
+        for v in adj.get(u, ()):
+            if v not in disc:
+                parent[v] = u
+                dfs(v)
+                low[u] = min(low[u], low[v])
+                if low[v] > disc[u]:
+                    bridges.add(tuple(sorted((u, v))))
+            elif parent.get(u) != v:
+                low[u] = min(low[u], disc[v])
+    for u in nodes:
+        if u not in disc and u in adj:
+            dfs(u)
+    return bridges
+
+def _weak_edge_scores(nodes, adj):
+    """Score edges by shared neighbors; fewer shared ⇒ weaker."""
+    scores = {}
+    for i in nodes:
+        if i not in adj: continue
+        for j in adj[i]:
+            if i < j:
+                scores[(i,j)] = len(adj[i] & adj.get(j, set()))
+    return scores
+
+def _subcomponents_after_cut(nodes_set, adj, cut):
+    """Return two node-sets after removing edge 'cut' = (u,v) from the induced graph."""
+    u, v = cut
+
+    def bfs(start, block):
+        seen = set()
+        stack = [start]
+        bu, bv = block  
+        while stack:
+            x = stack.pop()
+            if x in seen: 
+                continue
+            seen.add(x)
+            for w in adj.get(x, ()):
+                if (x == bu and w == bv) or (x == bv and w == bu):
+                    continue
+                if w not in seen:
+                    stack.append(w)
+        return seen
+
+    u_side = bfs(u, (u, v))
+    v_side = nodes_set - u_side
+    return u_side, v_side
+
+def rate_fission(mem, env):
+    """Macroscopic rate ∝ amount/size of eligible rafts (size ≥ cfg.FISSION_MIN_SIZE)."""
+    rafts = defaultdict(int)
+    for p in mem.peptides.values():
+        rafts[p["raft"]] += 1
+    eligible_sizes = [s for s in rafts.values() if s >= mem.cfg.FISSION_MIN_SIZE]
+    if not eligible_sizes:
+        return 0.0
+    if mem.cfg.FISSION_SIZE_SCALING == "linear":
+        scale = float(sum(eligible_sizes))
+    elif mem.cfg.FISSION_SIZE_SCALING == "log":
+        scale = float(sum(math.log(s) for s in eligible_sizes))
+    else:
+        scale = float(len(eligible_sizes))
+    k0 = getattr(mem.cfg, "FISSION_K0", 1.0)  
+    return k0 * scale
+
+def do_fission(mem, env):
+    """Perform R2_plus_fission: cut a bridge (or weak edge) inside one eligible raft.
+
+    Implementation detail:
+    - We do NOT move positions; we split the raft by reassigning one side of the
+      chosen cut to a new raft id. Mass is preserved; only connectivity changes.
+    """
+    rafts = defaultdict(int)
+    for p in mem.peptides.values():
+        rafts[p["raft"]] += 1
+    candidates = [rid for rid, s in rafts.items() if s >= mem.cfg.FISSION_MIN_SIZE]
+    if not candidates:
+        return
+    rid = random.choice(candidates)
+    nodes, adj = _raft_ids_and_adjacency(mem, rid)
+    if not nodes:
+        return
+
+    if mem.cfg.FISSION_HEURISTIC == "bridge":
+        bridges = list(_bridges_tarjan(nodes, adj))
+        if not bridges:
+            return
+        cut = random.choice(bridges)
+    elif mem.cfg.FISSION_HEURISTIC == "weak-edge":
+        scores = _weak_edge_scores(nodes, adj)
+        if not scores:
+            return
+        keys, vals = zip(*scores.items())
+        logits = np.array([-v for v in vals], dtype=float)
+        logits -= logits.max()
+        p = np.exp(logits); p /= p.sum()
+        cut = keys[np.random.choice(len(keys), p=p)]
+    else:
+        return
+
+    nodes_set = set(nodes)
+    u_side, v_side = _subcomponents_after_cut(nodes_set, adj, cut)
+    if not u_side or not v_side:
+        return
+
+    new_raft = mem.raft_counter; mem.raft_counter += 1
+    move_side = u_side if len(u_side) <= len(v_side) else v_side
+    for pid in move_side:
+        mem.peptides[pid]["raft"] = new_raft
+
+    mem.event_log.append({
+        "evt": "R2_plus_fission",
+        "raft": int(rid),
+        "cut": list(map(int, cut)),
+        "raft_size_before": int(len(nodes)),
+        "sizes_after": [int(len(u_side)), int(len(v_side))],
+        "heuristic": mem.cfg.FISSION_HEURISTIC
+    })
+
+# --------------------------------------------------------------------- #
 
 def draw_frame(mem, path:Path, border:float=1.0, title:Optional[str]=None):
     fig, ax = plt.subplots(figsize=(10,10))
@@ -452,6 +612,7 @@ def run_sim(cfg:Config):
     sched.register(Event("P4_flip",          rate_flip,       do_flip))
     sched.register(Event("R1_plus_assoc",      rate_assoc,      do_assoc))
     sched.register(Event("R1_minus_dissoc",    rate_dissoc,     do_dissoc))
+    sched.register(Event("R2_plus_fission",    rate_fission,     do_fission))
 
     frames_dir = cfg.OUT / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
@@ -557,6 +718,10 @@ def parse_args():
     p.add_argument("--RAFT_DIFF_SIZE_EXP", type=float, default=1.0)
     p.add_argument("--FUSION_IRREVERSIBLE", action="store_true")
     p.add_argument("--FUSION_SIZE_THRESH", type=int, default=6)
+    p.add_argument("--FISSION_MIN_SIZE", type=int, default=4)
+    p.add_argument("--FISSION_HEURISTIC", type=str, default="bridge",choices=["bridge", "weak-edge"])
+    p.add_argument("--FISSION_SIZE_SCALING", type=str, default="linear",choices=["linear", "log", "none"])
+    p.add_argument("--FISSION_K0", type=float, default=1.0)
     return p.parse_args()
 
 def cfg_from_args(args) -> Config:
@@ -574,6 +739,10 @@ def cfg_from_args(args) -> Config:
         RAFT_D0=args.RAFT_D0, RAFT_DIFF_SIZE_EXP=args.RAFT_DIFF_SIZE_EXP,
         FUSION_IRREVERSIBLE=args.FUSION_IRREVERSIBLE,
         FUSION_SIZE_THRESH=args.FUSION_SIZE_THRESH,
+        FISSION_MIN_SIZE=args.FISSION_MIN_SIZE,
+        FISSION_HEURISTIC=args.FISSION_HEURISTIC,
+        FISSION_SIZE_SCALING=args.FISSION_SIZE_SCALING,
+        FISSION_K0=args.FISSION_K0,
     )
 
 if __name__ == "__main__":
