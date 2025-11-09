@@ -104,6 +104,16 @@ python dflow_single.py --N0 12 --TOTAL_EVENTS 1000 --OUT runs/exp_0001 --SAVE_ST
   * `--POLY_GAIN_DAY`, `--POLY_GAIN_NIGHT` *(float)*: polymerization bias multipliers.
 * `--BETA` *(float)*: inverse temperature used in the **soft mismatch gate**.
 
+### R2 (Fission/Fusion) Controls
+The reversible raft split/merge pair (R2⁺ fission / R2⁻ fusion) is **off by default**. Enable and tune with:
+  * `--FISSION_ENABLED` (bool) default: false
+  * `--FISSION_MIN_SIZE` (int) default: 4
+  * `--FISSION_HEURISTIC` (str) default: bridge # choices: bridge|weak-edge
+  * `--FISSION_SIZE_SCALING` (str) default: linear # choices: linear|log|none|perimeter
+  * `--FISSION_ALLOW_PURE_CHIRAL` (bool) default: false
+
+**Rationale.** R2 introduces a reversible split/merge mechanism so raft connectivity can equilibrate under Metropolis acceptance (ΔE≈0 → unbiased counts). We default **R2 off** to preserve the stricter “pure-chiral rafts do not split” constraint and to avoid surprising topology changes for users focused only on R1/embedding dynamics. When enabled, `FISSION_MIN_SIZE` blocks trivial splits; `FISSION_HEURISTIC=bridge` uses graph bridges for physically plausible cuts, while `weak-edge` targets low shared-neighbor edges (more frequent but noisier). `FISSION_SIZE_SCALING` weights attempts across eligible rafts (e.g., `linear` ~ size-proportional). Only set `FISSION_ALLOW_PURE_CHIRAL=true` if you intentionally want chiral-pure rafts to split.
+
 Example (strong day bias, shorter days):
 
 ```bash
