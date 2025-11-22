@@ -72,6 +72,7 @@ class Config:
     DISCARD_TO_CROWDING_P: float = 0.5
     RAFT_D0: float = 1.0
     RAFT_DIFF_SIZE_EXP: float = 1.0
+    MISMATCH_MOBILITY_GAMMA: float = 0.0
     FUSION_IRREVERSIBLE: bool = False
     FUSION_SIZE_THRESH: int = 6
     INIT_CARBON_MIN: int = 10
@@ -182,7 +183,11 @@ class Scheduler:
         chosen.do_fn(mem, env)
         return chosen.name
 
-def rate_swap(mem, env): return 1.0
+def rate_swap(mem, env):
+    base = 1.0
+    mu_fac = mismatch_mobility_factor(mem)
+    return base * mu_fac
+
 def do_swap(mem, env):
     if not mem.amph: return
     a = random.choice(list(mem.amph.keys()))
@@ -578,6 +583,43 @@ def total_energy(mem,
 
     return E_bonds + E_mismatch 
 
+def global_mismatch_delta_h(mem) -> float:
+    """
+    Compute mean hydrophobic mismatch Δh along all raft boundaries:
+        Δh = |L_p - leaflet_thickness|
+    where L_p ≈ 0.15 nm / residue and leaflet_thickness is 0.5 * local_membrane_thickness_nm.
+    """
+    total = 0.0
+    count = 0
+    leaflet_cache = {}
+
+    for c_pep, c_nb, pid in _boundary_pairs(mem):
+        cent = mem.peptides[pid]["cent"]
+        if cent not in leaflet_cache:
+            leaflet_cache[cent] = 0.5 * mem.local_membrane_thickness_nm(cent)
+        leaflet = leaflet_cache[cent]
+        Lp = _peptide_length_nm_from_pid(mem, pid)
+        total += abs(Lp - leaflet)
+        count += 1
+
+    if count == 0:
+        return 0.0
+    return total / float(count)
+
+
+def mismatch_mobility_factor(mem) -> float:
+    """
+    Effective 2D mobility:
+        μ_eff = μ0 / (1 + γ Δh^2),
+    with γ = cfg.MISMATCH_MOBILITY_GAMMA and Δh from global_mismatch_delta_h.
+    This factor is used to scale A1 and R2 event rates.
+    """
+    gamma = getattr(mem.cfg, "MISMATCH_MOBILITY_GAMMA", 0.0)
+    if gamma <= 0.0:
+        return 1.0
+    dh = global_mismatch_delta_h(mem)
+    return 1.0 / (1.0 + gamma * (dh ** 2))
+
 def raft_chirality_counts(mem, raft_id:int) -> Tuple[int, int]:
     """Return (#D, #L) for a given raft."""
     d = l = 0
@@ -678,11 +720,18 @@ def rate_fission(mem, env):
         scale = float(len(sizes))
 
     k0 = getattr(mem.cfg, "FISSION_K0", 1.0)
-    return k0 * scale
+    mu_fac = mismatch_mobility_factor(mem)
+    return k0 * scale * mu_fac
 
 def _rebuild_bonds_for_rafts(mem, raft_ids: Optional[Iterable[int]] = None):
     """Recompute bonds only for given rafts (or globally if None).
     Bonds are stored as pid-sorted pairs (i<j)."""
+    bad = []
+    for (i, j) in mem.bonds:
+        if i not in mem.peptides or j not in mem.peptides:
+            bad.append((i, j))
+    for b in bad:
+        mem.bonds.discard(b)
     if raft_ids is None:
         mem.bonds.clear()
         raft_filter = None
@@ -877,7 +926,8 @@ def rate_fusion(mem, env):
     total = sum(allowed.values())
     if total <= 0:
         return 0.0
-    return mem.cfg.FUSION_K0 * float(total)
+    mu_fac = mismatch_mobility_factor(mem)
+    return mem.cfg.FUSION_K0 * float(total) * mu_fac
 
 def _reconcile_after_fusion(mem, target: int, source: int, changed: List[int]):
     if not (target < source):
@@ -944,53 +994,213 @@ def do_fusion(mem, env):
     _mark_r2(mem, target, env, "fusion")
     _reconcile_after_fusion(mem, target, source, changed)
 
-def draw_frame(mem, path:Path, border:float=1.0, title:Optional[str]=None):
-    fig, ax = plt.subplots(figsize=(10,10))
-    ax.set_aspect('equal'); ax.axis('off')
+def peptide_local_mismatch(mem, pid: int, leaflet_cache: Optional[Dict[Tuple[int, int], float]] = None) -> float:
+    """
+    Per-peptide hydrophobic mismatch Δh = |L_p - leaflet_thickness(center)|
+    using the same geometric definition as in total_energy/global_mismatch_delta_h.
+    """
+    p = mem.peptides[pid]
+    cent = p["cent"]
+    if leaflet_cache is not None:
+        if cent not in leaflet_cache:
+            leaflet_cache[cent] = 0.5 * mem.local_membrane_thickness_nm(cent)
+        leaflet = leaflet_cache[cent]
+    else:
+        leaflet = 0.5 * mem.local_membrane_thickness_nm(cent)
+    Lp = _peptide_length_nm_from_pid(mem, pid)
+    return abs(Lp - leaflet)
+
+def draw_frame(
+    mem,
+    path: Path,
+    border: float = 1.0,
+    title: Optional[str] = None,
+    color_mode: str = "raft",   # "raft" (default) or "mismatch"
+):
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # --- Background: amphiphiles in grayscale by carbon length ---
     minC, maxC = mem.cfg.INIT_CARBON_MIN, mem.cfg.INIT_CARBON_MAX
-    for (q,r), info in mem.amph.items():
-        x,y = axial_to_xy(q,r, mem.hex_radius)
-        t = (info["carbon"] - minC) / max(1e-6,(maxC - minC))
-        t = min(max(t,0.0),1.0)
-        base = 0.92 - 0.25*t
+    for (q, r), info in mem.amph.items():
+        x, y = axial_to_xy(q, r, mem.hex_radius)
+        t = (info["carbon"] - minC) / max(1e-6, (maxC - minC))
+        t = min(max(t, 0.0), 1.0)
+        base = 0.92 - 0.25 * t
         color = (base, base, base)
-        # FIX APPLIED: All arguments are now explicit keywords to bypass parser error
-        patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, orientation=radians(30), facecolor=color, edgecolor='k', linewidth=0.5)
+        patch = RegularPolygon(
+            xy=(x, y),
+            numVertices=6,
+            radius=mem.hex_radius,
+            orientation=radians(30),
+            facecolor=color,
+            edgecolor='k',
+            linewidth=0.5,
+        )
         ax.add_patch(patch)
         if mem.cfg.LABEL_CARBONS:
             ax.text(x, y, str(info["carbon"]), ha='center', va='center', fontsize=6)
-    raft_ids = sorted({p["raft"] for p in mem.peptides.values()}) if mem.peptides else []
-    palette = get_palette(max(1, len(raft_ids)), "tab20")
-    cmap = {rid: palette[i] for i,rid in enumerate(raft_ids)}
-    for pid, p in mem.peptides.items():
-        cells = rotate_triad(p["cent"], p["orient"])
-        fc = cmap.get(p["raft"], (0.8,0.2,0.2))
-        lw = 1.5 if p["inside"] else 0.6
-        for (q,r) in cells:
-            x,y = axial_to_xy(q,r, mem.hex_radius)
-            # FIX APPLIED: All arguments are now explicit keywords
-            patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, facecolor=fc, edgecolor='black', orientation=radians(30), linewidth=lw)
-            ax.add_patch(patch)
-    qmin,qmax = -mem.n, mem.n
-    rmin,rmax = -mem.n, mem.n
+
+    # --- Foreground: peptides (triads) ---
+    # Option 1: color by raft ID (old behavior)
+    if color_mode == "raft":
+        raft_ids = sorted({p["raft"] for p in mem.peptides.values()}) if mem.peptides else []
+        palette = get_palette(max(1, len(raft_ids)), "tab20")
+        cmap_raft = {rid: palette[i] for i, rid in enumerate(raft_ids)}
+
+        for pid, p in mem.peptides.items():
+            cells = rotate_triad(p["cent"], p["orient"])
+            fc = cmap_raft.get(p["raft"], (0.8, 0.2, 0.2))
+            lw = 1.5 if p["inside"] else 0.6
+            for (q, r) in cells:
+                x, y = axial_to_xy(q, r, mem.hex_radius)
+                patch = RegularPolygon(
+                    xy=(x, y),
+                    numVertices=6,
+                    radius=mem.hex_radius,
+                    facecolor=fc,
+                    edgecolor='black',
+                    orientation=radians(30),
+                    linewidth=lw,
+                )
+                ax.add_patch(patch)
+
+    # Option 2: color by local mismatch Δh = |L_p − leaflet|
+    elif color_mode == "mismatch":
+        if mem.peptides:
+            leaflet_cache: Dict[Tuple[int, int], float] = {}
+            mismatch_by_pid: Dict[int, float] = {
+                pid: peptide_local_mismatch(mem, pid, leaflet_cache) for pid in mem.peptides
+            }
+            vals = list(mismatch_by_pid.values())
+            vmin, vmax = min(vals), max(vals)
+            if vmax <= vmin:
+                vmax = vmin + 1e-9
+
+            # Use a perceptually nice continuous cmap
+            cmap = mpl.colormaps.get("viridis", plt.get_cmap("viridis"))
+            norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+            sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+            for pid, p in mem.peptides.items():
+                cells = rotate_triad(p["cent"], p["orient"])
+                m = mismatch_by_pid[pid]
+                fc = cmap(norm(m))
+                lw = 1.5 if p["inside"] else 0.6
+                for (q, r) in cells:
+                    x, y = axial_to_xy(q, r, mem.hex_radius)
+                    patch = RegularPolygon(
+                        xy=(x, y),
+                        numVertices=6,
+                        radius=mem.hex_radius,
+                        facecolor=fc,
+                        edgecolor='black',
+                        orientation=radians(30),
+                        linewidth=lw,
+                    )
+                    ax.add_patch(patch)
+
+            # Colorbar to read off mismatch amplitude
+            cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label("|L_p − leaflet thickness| (nm)")
+
+    else:
+        raise ValueError(f"Unknown color_mode='{color_mode}'. Use 'raft' or 'mismatch'.")
+
+    # --- View limits / framing ---
+    qmin, qmax = -mem.n, mem.n
+    rmin, rmax = -mem.n, mem.n
     corners = [
-        axial_to_xy(qmin,rmin, mem.hex_radius), axial_to_xy(qmin,rmax, mem.hex_radius),
-        axial_to_xy(qmax,rmin, mem.hex_radius), axial_to_xy(qmax,rmax, mem.hex_radius),
-        axial_to_xy(0,-mem.n, mem.hex_radius), axial_to_xy(0,mem.n, mem.hex_radius),
-        axial_to_xy(-mem.n,0, mem.hex_radius), axial_to_xy(mem.n,0, mem.hex_radius)
+        axial_to_xy(qmin, rmin, mem.hex_radius), axial_to_xy(qmin, rmax, mem.hex_radius),
+        axial_to_xy(qmax, rmin, mem.hex_radius), axial_to_xy(qmax, rmax, mem.hex_radius),
+        axial_to_xy(0, -mem.n, mem.hex_radius),  axial_to_xy(0, mem.n, mem.hex_radius),
+        axial_to_xy(-mem.n, 0, mem.hex_radius),  axial_to_xy(mem.n, 0, mem.hex_radius),
     ]
-    xs = [c[0] for c in corners]; ys = [c[1] for c in corners]
-    xmin, xmax = min(xs)-border, max(xs)+border
-    ymin, ymax = min(ys)-border, max(ys)+border
-    ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
-    if title: ax.set_title(title)
-    fig.savefig(path, dpi=150, bbox_inches="tight"); plt.close(fig)
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    xmin, xmax = min(xs) - border, max(xs) + border
+    ymin, ymax = min(ys) - border, max(ys) + border
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+
+    if title:
+        ax.set_title(title)
+
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 @dataclass
 class DiurnalEnv:
     diurnal: Diurnal
     beta: float
     step_idx: int = 0
+def run_validation_sweep(
+    mem,
+    env: DiurnalEnv,
+    sched: Scheduler,
+    out_dir: Path,
+    n_steps: int = 20000,
+):
+    """
+    Short Monte Carlo sweep to probe fission–fusion equilibria under
+    mismatch-dependent mobility.
+
+    For each step:
+      - advance one kinetic Monte Carlo event,
+      - record total energy E,
+      - record the largest bonds-defined raft size (connected component).
+
+    Outputs:
+      - validation_energy_vs_raftsize.csv
+      - validation_energy_vs_raftsize.png
+    """
+    import pandas as pd
+
+    energies = []
+    max_sizes = []
+
+    for _ in range(n_steps):
+        # advance global step index (keeps R2 cooldown logic consistent)
+        env.step_idx += 1
+        _ = sched.step(mem, env)
+
+        # total system energy
+        E = total_energy(mem)
+
+        # connected components as bonds-defined rafts
+        comps = connected_components_full(mem)
+        if comps:
+            sizes = [len(c) for c in comps]
+            max_size = max(sizes)
+        else:
+            max_size = 0
+
+        energies.append(E)
+        max_sizes.append(max_size)
+
+        # keep diurnal ticking (if you prefer "frozen" diurnal, comment this)
+        env.diurnal.tick()
+
+    # Save raw sweep data
+    import numpy as np
+    df = pd.DataFrame({
+        "step": np.arange(len(energies)),
+        "energy": energies,
+        "max_raft_size": max_sizes,
+    })
+    df.to_csv(out_dir / "validation_energy_vs_raftsize.csv", index=False)
+
+    # Single diagnostic plot: energy vs largest raft size
+    plt.figure(figsize=(6, 4))
+    plt.scatter(max_sizes, energies, s=8, alpha=0.4)
+    plt.xlabel("Largest raft size (bonds-defined component)")
+    plt.ylabel("Total energy $E$")
+    plt.title("Validation sweep: energy vs largest raft size")
+    plt.tight_layout()
+    plt.savefig(out_dir / "validation_energy_vs_raftsize.png",
+                dpi=200, bbox_inches="tight")
+    plt.close()
 
 def run_sim(cfg:Config):
     random.seed(cfg.SEED); np.random.seed(cfg.SEED)
@@ -1069,7 +1279,8 @@ def run_sim(cfg:Config):
     (cfg.OUT / "peptide_pool.json").write_text(json.dumps(mem.pool, indent=2))
     (cfg.OUT / "crowding.json").write_text(json.dumps({"crowding_count": mem.crowding_count}, indent=2))
     (cfg.OUT / "event_log.json").write_text(json.dumps(mem.event_log, indent=2))
-
+    if cfg.FISSION_ENABLED:
+        run_validation_sweep(mem, env, sched, cfg.OUT, n_steps=20000)
     generate_monte_carlo_histogram(cfg.OUT)
 
 def generate_monte_carlo_histogram(out_path: Path, n_samples:int=5000):
@@ -1119,13 +1330,14 @@ def parse_args():
     p.add_argument("--RAFT_DIFF_SIZE_EXP", type=float, default=1.0)
     p.add_argument("--FUSION_IRREVERSIBLE", action="store_true")
     p.add_argument("--FUSION_SIZE_THRESH", type=int, default=6)
+    p.add_argument("--FUSION_K0", type=float, default=1.0)
     p.add_argument("--FISSION_MIN_SIZE", type=int, default=4)
     p.add_argument("--FISSION_HEURISTIC", type=str, default="bridge",choices=["bridge", "weak-edge"])
     p.add_argument("--FISSION_K0", type=float, default=1.0)
-    p.add_argument("--FISSION_SIZE_SCALING", type=str, default="linear", choices=["linear", "log", "none", "perimeter"])
-    p.add_argument("--FISSION_ENABLED", action="store_true", help="Enable R2_plus_fission/R2_minus_fusion reversible pair")
-    p.add_argument("--FISSION_ALLOW_PURE_CHIRAL", action="store_true", help="Allow fission of pure-chiral rafts (all D or all L). Default False."
-)
+    p.add_argument("--FISSION_SIZE_SCALING", type=str, default="linear",choices=["linear", "log", "none", "perimeter"])
+    p.add_argument("--FISSION_ENABLED", action="store_true",help="Enable R2_plus_fission/R2_minus_fusion reversible pair")
+    p.add_argument("--FISSION_ALLOW_PURE_CHIRAL", action="store_true",help="Allow fission of pure-chiral rafts (all D or all L). Default False.")
+    p.add_argument("--MISMATCH_MOBILITY_GAMMA", type=float, default=0.0,help="Couple hydrophobic mismatch Δh to mobility μ via μ_eff = μ0 / (1 + γ Δh^2).")
     return p.parse_args()
 
 def cfg_from_args(args) -> Config:
@@ -1141,6 +1353,7 @@ def cfg_from_args(args) -> Config:
         DESORB_TO_CROWDING=args.DESORB_TO_CROWDING,
         DISCARD_TO_CROWDING_P=args.DISCARD_TO_CROWDING_P,
         RAFT_D0=args.RAFT_D0, RAFT_DIFF_SIZE_EXP=args.RAFT_DIFF_SIZE_EXP,
+        MISMATCH_MOBILITY_GAMMA=args.MISMATCH_MOBILITY_GAMMA,
         FUSION_IRREVERSIBLE=args.FUSION_IRREVERSIBLE,
         FUSION_SIZE_THRESH=args.FUSION_SIZE_THRESH,
         FUSION_K0=args.FUSION_K0,
