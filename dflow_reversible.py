@@ -35,6 +35,39 @@ RAFT_R0 = 5.0
 # -------------------------------------------------
 
 
+
+def raft_mismatch_for_component(mem, comp):
+    """
+    Placeholder for hydrophobic mismatch Δh for a raft (connected component of amphiphiles).
+
+    By default this returns None, which effectively disables mismatch–mobility
+    coupling and reduces the mobility to the plain 2D Stokes form used in the
+    original patched implementation.
+
+    If you have a way to compute a meaningful mismatch field per raft, extend
+    or replace this function to return a float Δh for the given component.
+    """
+    return None
+
+
+def stokes_mobility_with_mismatch(radius: float,
+                                  eta_2D: float,
+                                  delta_h: float,
+                                  gamma: float) -> float:
+    """
+    2D Stokes mobility with optional quadratic mismatch coupling.
+
+        μ0 = 1 / (4π η_2D a)
+        μ  = μ0 / (1 + γ Δh²)
+
+    If delta_h is None or gamma == 0.0, this reduces to μ0.
+    """
+    mu0 = 1.0 / (4.0 * math.pi * eta_2D * radius)
+    if delta_h is None or gamma == 0.0:
+        return mu0
+    return mu0 / (1.0 + gamma * (delta_h ** 2))
+
+
 def _raft_components_from_bonds(mem):
     """
     Return a list of connected components (rafts),
@@ -134,8 +167,10 @@ def rate_R4_drift(mem, env):
         if len(comp) < 2:
             continue
         _, _, a = _raft_centroid_and_radius(mem, comp)
-        # 2D Stokes Mobility: mu = 1 / (4 * pi * eta * a)
-        mu = 1.0 / (4.0 * math.pi * eta_2D * a)
+        # 2D Stokes Mobility with optional mismatch coupling
+        delta_h = raft_mismatch_for_component(mem, comp)
+        gamma = getattr(mem.cfg, "MISMATCH_MOBILITY_GAMMA", 0.0)
+        mu = stokes_mobility_with_mismatch(a, eta_2D, delta_h, gamma)
         k_i = RAFT_D0 * mu
         if k_i <= 0.0 or not math.isfinite(k_i):
             continue
@@ -294,6 +329,10 @@ class Config:
     INIT_CARBON_MAX: int = 20
     LABEL_CARBONS: bool = False
     BORDER: float = 1.0
+    MISMATCH_MOBILITY_GAMMA: float = 0.25
+    COLOR_MODE: str = "default"
+    MISMATCH_CMAP: str = "viridis"
+    MISMATCH_NORMALIZE: bool = False
 
     def __post_init__(self):
         if self.SAVE_STEPS is None:
@@ -789,6 +828,34 @@ def generate_monte_carlo_histogram(out_path: Path, n_samples:int=5000):
 
 def parse_args():
     p = argparse.ArgumentParser(description="DFlow reversible")
+
+    # mismatch / visualization parameters
+    p.add_argument(
+        "--MISMATCH_MOBILITY_GAMMA",
+        type=float,
+        default=0.25,
+        help="Quadratic mismatch–mobility coupling gamma (0.0 disables mismatch coupling).",
+    )
+    p.add_argument(
+        "--COLOR_MODE",
+        type=str,
+        default="default",
+        choices=["default", "mismatch"],
+        help="Colour mode for saved frames.",
+    )
+    p.add_argument(
+        "--MISMATCH_CMAP",
+        type=str,
+        default="viridis",
+        help="Matplotlib colormap name for mismatch visualization.",
+    )
+    p.add_argument(
+        "--MISMATCH_NORMALIZE",
+        action="store_true",
+        help="Normalize mismatch field per frame when COLOR_MODE='mismatch'.",
+    )
+
+    # core simulation and diurnal parameters
     p.add_argument("--SEED", type=int, default=42)
     p.add_argument("--N0", type=int, default=12)
     p.add_argument("--HEX_RADIUS", type=float, default=1.0)
@@ -812,9 +879,12 @@ def parse_args():
     p.add_argument("--FUSION_SIZE_THRESH", type=int, default=6)
     return p.parse_args()
 
+
 def cfg_from_args(args) -> Config:
-    out = Path(args.OUT); out.mkdir(parents=True, exist_ok=True)
-    return Config(
+    out = Path(args.OUT)
+    out.mkdir(parents=True, exist_ok=True)
+
+    cfg = Config(
         SEED=args.SEED, N0=args.N0, HEX_RADIUS=args.HEX_RADIUS,
         TOTAL_EVENTS=args.TOTAL_EVENTS, OUT=out, SAVE_STEPS=args.SAVE_STEPS,
         DAY_STEPS=args.DAY_STEPS, NIGHT_STEPS=args.NIGHT_STEPS,
@@ -828,6 +898,15 @@ def cfg_from_args(args) -> Config:
         FUSION_IRREVERSIBLE=args.FUSION_IRREVERSIBLE,
         FUSION_SIZE_THRESH=args.FUSION_SIZE_THRESH,
     )
+
+    # mismatch / visualization parameters
+    cfg.MISMATCH_MOBILITY_GAMMA = args.MISMATCH_MOBILITY_GAMMA
+    cfg.COLOR_MODE = args.COLOR_MODE
+    cfg.MISMATCH_CMAP = args.MISMATCH_CMAP
+    cfg.MISMATCH_NORMALIZE = args.MISMATCH_NORMALIZE
+
+    return cfg
+
 
 if __name__ == "__main__":
     args = parse_args()
