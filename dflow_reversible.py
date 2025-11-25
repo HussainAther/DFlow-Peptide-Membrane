@@ -15,6 +15,227 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import RegularPolygon
 
+ETA_2D_DEFAULT = 8.0
+
+def raft_mismatch_for_component(mem, comp):
+    """
+    Mean hydrophobic mismatch Δh for a raft (connected set of peptide IDs).
+
+    We reuse the same geometric definition as total_energy/global_mismatch_delta_h:
+        Δh = |L_p - leaflet_thickness(center)|
+    and average over all peptides in the component.
+    """
+    if not comp:
+        return 0.0
+
+    leaflet_cache = {}
+    vals = []
+    for pid in comp:
+        if pid not in mem.peptides:
+            continue
+        vals.append(peptide_local_mismatch(mem, pid, leaflet_cache))
+    if not vals:
+        return 0.0
+    return sum(vals) / float(len(vals))
+
+
+def stokes_mobility_with_mismatch(radius: float,
+                                  eta_2D: float,
+                                  delta_h: float | None,
+                                  gamma: float) -> float:
+    """
+    2D Stokes mobility with optional quadratic mismatch coupling:
+
+        μ0 = 1 / (4π η_2D a)
+        μ  = μ0 / (1 + γ Δh²)
+
+    If delta_h is None or gamma <= 0, this reduces to μ0.
+    """
+    if radius <= 0.0:
+        radius = 1.0
+    mu0 = 1.0 / (4.0 * math.pi * eta_2D * radius)
+    if delta_h is None or gamma <= 0.0:
+        return mu0
+    return mu0 / (1.0 + gamma * (delta_h ** 2))
+
+
+def _raft_components_from_bonds(mem):
+    """
+    Return list of rafts as sets of peptide IDs, using mem.bonds
+    (each bond is a (pid_i, pid_j) pair). Peptides not in any bond
+    appear as singleton components.
+    """
+    peptides = set(mem.peptides.keys())
+    bonds = getattr(mem, "bonds", set())
+
+    # adjacency graph over peptide IDs
+    adj = {pid: set() for pid in peptides}
+    for i, j in bonds:
+        if i in adj and j in adj:
+            adj[i].add(j)
+            adj[j].add(i)
+
+    visited = set()
+    comps = []
+
+    for pid in peptides:
+        if pid in visited:
+            continue
+        stack = [pid]
+        comp = set()
+        while stack:
+            u = stack.pop()
+            if u in visited:
+                continue
+            visited.add(u)
+            comp.add(u)
+            for v in adj[u]:
+                if v not in visited:
+                    stack.append(v)
+        comps.append(comp)
+
+    return comps
+
+
+def _raft_centroid_and_radius(mem, raft_peptide_ids):
+    """
+    Given a set of peptide IDs forming a raft, return:
+        (centroid_q, centroid_r, eff_radius)
+
+    centroid in axial lattice coords (q, r),
+    eff_radius ~ sqrt(N / pi), N = number of peptides.
+    """
+    if not raft_peptide_ids:
+        return (0.0, 0.0, 1.0)
+
+    qs, rs = [], []
+    for pid in raft_peptide_ids:
+        p = mem.peptides.get(pid)
+        if p is None:
+            continue
+        q, r = p["cent"]
+        qs.append(q)
+        rs.append(r)
+
+    if not qs:
+        return (0.0, 0.0, 1.0)
+
+    cq = sum(qs) / len(qs)
+    cr = sum(rs) / len(rs)
+    n = max(1, len(raft_peptide_ids))
+    radius = max(1.0, math.sqrt(n / math.pi))
+
+    return (cq, cr, radius)
+
+
+def rate_R4_drift(mem, env):
+    """
+    Macroscopic rate for R4 raft drift.
+
+    For each bonds-defined raft i:
+        μ_i = 1 / (4π η_2D a_i)
+        k_i = cfg.RAFT_D0 * μ_i   (optionally mismatch-coupled)
+
+    Then:
+        k_total = Σ_i k_i
+
+    We store per-raft contributions on env._R4_contribs for sampling
+    in do_R4_drift.
+    """
+    eta_2D = getattr(env, "eta_2D", ETA_2D_DEFAULT)
+    gamma = getattr(mem.cfg, "MISMATCH_MOBILITY_GAMMA", 0.0)
+
+    rafts = _raft_components_from_bonds(mem)
+    contribs = []
+    total_rate = 0.0
+
+    for comp in rafts:
+        # Ignore rafts of size 1; those move via single-peptide P3 diffusion
+        if len(comp) < 2:
+            continue
+        _, _, a = _raft_centroid_and_radius(mem, comp)
+        delta_h = raft_mismatch_for_component(mem, comp)
+        mu = stokes_mobility_with_mismatch(a, eta_2D, delta_h, gamma)
+        k_i = mem.cfg.RAFT_D0 * mu
+        if k_i <= 0.0 or not math.isfinite(k_i):
+            continue
+        contribs.append((comp, k_i))
+        total_rate += k_i
+
+    setattr(env, "_R4_contribs", contribs)
+    return total_rate
+
+
+def do_R4_drift(mem, env, rng=None):
+    """
+    Perform a single R4 drift event:
+
+      1. Sample a raft from env._R4_contribs weighted by k_i.
+      2. Choose a random hex-lattice direction.
+      3. Attempt to translate the entire raft; reject on collision/out-of-bounds.
+    """
+    if rng is None:
+        rng = random
+
+    contribs = getattr(env, "_R4_contribs", None)
+    if not contribs:
+        # recompute on the fly if cache empty
+        if rate_R4_drift(mem, env) <= 0.0:
+            return
+        contribs = getattr(env, "_R4_contribs", None)
+        if not contribs:
+            return
+
+    ks = [k_i for (_, k_i) in contribs]
+    total = sum(ks)
+    if total <= 0.0:
+        return
+
+    r = rng.random() * total
+    acc = 0.0
+    raft = None
+    for comp, k_i in contribs:
+        acc += k_i
+        if r <= acc:
+            raft = comp
+            break
+    if raft is None:
+        return
+
+    pep = mem.peptides
+    amph = mem.amph
+
+    # axial neighbor directions (pointy-top)
+    directions = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1)]
+    dq, dr = rng.choice(directions)
+
+    current_sites = {pid: pep[pid]["cent"] for pid in raft}
+    new_sites = {}
+    occupied = {p["cent"] for p in pep.values()}  # all peptide positions
+
+    # bounds & collision check
+    for pid, (q, r0) in current_sites.items():
+        q_new, r_new = q + dq, r0 + dr
+        if (q_new, r_new) not in amph:
+            return  # out of lattice
+        new_sites[pid] = (q_new, r_new)
+
+    old_positions = set(current_sites.values())
+    for pid, new_pos in new_sites.items():
+        if new_pos in occupied and new_pos not in old_positions:
+            return  # collision
+
+    # apply the move
+    for pid, new_pos in new_sites.items():
+        pep[pid]["cent"] = new_pos
+
+    mem.event_log.append({
+        "event": "R4_drift",
+        "raft_size": len(raft),
+        "dq": dq,
+        "dr": dr,
+    })
+
 def get_palette(n: int, name: str = "tab20"):
     try:
         cmap = mpl.colormaps[name]
@@ -1364,6 +1585,14 @@ def cfg_from_args(args) -> Config:
         FISSION_ENABLED=args.FISSION_ENABLED,
         FISSION_ALLOW_PURE_CHIRAL=args.FISSION_ALLOW_PURE_CHIRAL,
     )
+
+# --- Export R4 API for external analysis modules ---
+__all__ = [
+    "rate_R4_drift",
+    "do_R4_drift",
+    "stokes_mobility_with_mismatch",
+    "raft_mismatch_for_component",
+]
 
 
 if __name__ == "__main__":

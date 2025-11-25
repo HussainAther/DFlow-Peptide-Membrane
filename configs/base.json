@@ -8,5 +8,10 @@
     0,
     500,
     1000
-  ]
+  ],
+  "MISMATCH_MOBILITY_GAMMA": 0.25,
+  "COLOR_MODE": "default",            
+  "MISMATCH_CMAP": "viridis",
+  "MISMATCH_NORMALIZE": false         
+}
 }
