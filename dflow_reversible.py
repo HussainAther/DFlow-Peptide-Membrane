@@ -323,6 +323,7 @@ class Config:
     DISCARD_TO_CROWDING_P: float = 0.5
     RAFT_D0: float = 1.0
     RAFT_DIFF_SIZE_EXP: float = 1.0
+    MISMATCH_MOBILITY_GAMMA: float = 0.0
     FUSION_IRREVERSIBLE: bool = False
     FUSION_SIZE_THRESH: int = 6
     INIT_CARBON_MIN: int = 10
@@ -371,6 +372,10 @@ class Membrane:
         self.pool = {"aa": 0, "peptides": 0}
         self.event_log: List[Dict] = []
         self._init_membrane()
+        self.bonds: set[tuple[int, int]] = set()
+        self.raft_meta: Dict[int, Dict] = {}
+        self.last_R2: Dict[int, Dict[str, int]] = {}  
+        self.R2_COOLDOWN_STEPS = 1 
     def _axial_in_rhombus(self, q:int, r:int) -> bool:
         n = self.n
         return (abs(q) <= n) and (abs(r) <= n) and (abs(q+r) <= n)
@@ -405,7 +410,6 @@ class Membrane:
                 return anchor, orient, cells
         return None, None, None
 
-from dataclasses import dataclass
 @dataclass
 class Event:
     name: str
@@ -427,7 +431,11 @@ class Scheduler:
         chosen.do_fn(mem, env)
         return chosen.name
 
-def rate_swap(mem, env): return 1.0
+def rate_swap(mem, env):
+    base = 1.0
+    mu_fac = mismatch_mobility_factor(mem)
+    return base * mu_fac
+
 def do_swap(mem, env):
     if not mem.amph: return
     a = random.choice(list(mem.amph.keys()))
@@ -505,7 +513,8 @@ def do_insert(mem, env):
     pid = mem.pid_counter; mem.pid_counter += 1
     rid = mem.raft_counter; mem.raft_counter += 1
     inside = bool(random.getrandbits(1))
-    mem.peptides[pid] = {"cent": anchor, "orient": orient, "raft": rid, "inside": inside, "nres": nres}
+    chir = 'D' if random.getrandbits(1) else 'L' 
+    mem.peptides[pid] = {"cent": anchor, "orient": orient, "raft": rid, "inside": inside, "nres": nres , "chir": chir}
     for c in cells:
         mem.amph[c]["pep"] = True
     mem.event_log.append({"evt":"P2_plus_insert","pid":pid,"raft":rid,"cells":cells,"nres":nres,"mismatch":mismatch})
@@ -670,47 +679,730 @@ def connected_components_full(mem) -> List[List[int]]:
         comps.append(group)
     return comps
 
-def draw_frame(mem, path:Path, border:float=1.0, title:Optional[str]=None):
-    fig, ax = plt.subplots(figsize=(10,10))
-    ax.set_aspect('equal'); ax.axis('off')
+def _raft_ids_and_adjacency(mem, raft_id:int):
+    """Return (node_ids, adjacency dict) for the induced subgraph of a single raft."""
+    raft_nodes = [pid for pid, p in mem.peptides.items() if p["raft"] == raft_id]
+    if not raft_nodes:
+        return [], {}
+    idx = {pid:i for i, pid in enumerate(raft_nodes)}
+    adj = {pid:set() for pid in raft_nodes}
+    cell2pids = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            cell2pids[c].append(pid)
+    for pid in raft_nodes:
+        p = mem.peptides[pid]
+        seen = set()
+        for (q,r) in rotate_triad(p["cent"], p["orient"]):
+            for dq,dr in AX_NEI:
+                nb = (q+dq, r+dr)
+                if nb in cell2pids:
+                    for pid2 in cell2pids[nb]:
+                        if pid2 != pid and pid2 not in seen and mem.peptides[pid2]["raft"] == raft_id:
+                            adj[pid].add(pid2)
+                            adj[pid2].add(pid)
+                            seen.add(pid2)
+    return raft_nodes, adj
+
+def _bridges_tarjan(nodes, adj):
+    """Tarjan bridges on an undirected graph given by adj: dict[node] -> set(neigh)."""
+    time = 0
+    disc, low, parent = {}, {}, {}
+    bridges = set()
+    def dfs(u):
+        nonlocal time
+        time += 1
+        disc[u] = low[u] = time
+        for v in adj.get(u, ()):
+            if v not in disc:
+                parent[v] = u
+                dfs(v)
+                low[u] = min(low[u], low[v])
+                if low[v] > disc[u]:
+                    bridges.add(tuple(sorted((u, v))))
+            elif parent.get(u) != v:
+                low[u] = min(low[u], disc[v])
+    for u in nodes:
+        if u not in disc and u in adj:
+            dfs(u)
+    return bridges
+
+def _weak_edge_scores(nodes, adj):
+    """Score edges by shared neighbors; fewer shared ⇒ weaker."""
+    scores = {}
+    for i in nodes:
+        if i not in adj: continue
+        for j in adj[i]:
+            if i < j:
+                scores[(i,j)] = len(adj[i] & adj.get(j, set()))
+    return scores
+
+def _subcomponents_after_cut(nodes_set, adj, cut):
+    """Return two node-sets after removing edge 'cut' = (u,v) from the induced graph."""
+    u, v = cut
+
+    def bfs(start, block):
+        seen = set()
+        stack = [start]
+        bu, bv = block  
+        while stack:
+            x = stack.pop()
+            if x in seen: 
+                continue
+            seen.add(x)
+            for w in adj.get(x, ()):
+                if (x == bu and w == bv) or (x == bv and w == bu):
+                    continue
+                if w not in seen:
+                    stack.append(w)
+        return seen
+
+    u_side = bfs(u, (u, v))
+    v_side = nodes_set - u_side
+    return u_side, v_side
+def _r2_blocked(mem, rid: int, env) -> bool:
+    rec = mem.last_R2.get(rid)
+    if rec is None:
+        return False
+    return (env.step_idx - rec["step"]) <= mem.R2_COOLDOWN_STEPS
+
+def _mark_r2(mem, rid: int, env, typ: str):
+    mem.last_R2[rid] = {"type": typ, "step": int(env.step_idx)}
+
+
+def accept_move(beta: float, dE: float) -> bool:
+    """Metropolis acceptance."""
+    if dE <= 0:
+        return True
+    return random.random() < math.exp(-beta * dE)
+
+def _cell2pids(mem):
+    m = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            m[c].append(pid)
+    return m
+
+def _boundary_pairs(mem):
+    """
+    Yield boundary contacts: (peptide_cell, neighbor_cell, pid_at_peptide_cell)
+    where peptide_cell is occupied and neighbor_cell is *not* occupied
+    (i.e., raft perimeter).
+    """
+    c2pids = _cell2pids(mem)  
+    for c, pids_here in c2pids.items():
+        for dq, dr in AX_NEI:
+            nb = (c[0]+dq, c[1]+dr)
+            if nb not in c2pids and nb in mem.amph:
+                for pid in pids_here:
+                    yield c, nb, pid
+
+def _peptide_length_nm_from_pid(mem, pid:int) -> float:
+    return 0.15 * max(1, mem.peptides[pid].get("nres", 6))
+
+def total_energy(mem,
+                 J_same: float = 1.0,
+                 L_mismatch: float = 1.0,
+                 K_crowd: float = 0.0) -> float:
+    """
+    System energy E = E_bonds + E_mismatch + E_crowd.
+
+    - E_bonds:    -J_same * (# of adjacencies where touching cells belong to peptides of the SAME raft)
+                  (favors larger, contiguous rafts)
+    - E_mismatch:  L_mismatch * sum_over_perimeter( | L_p - leaflet_thickness | )
+                   where L_p = ~0.15 nm per residue; leaflet_thickness = 0.5 * local_membrane_thickness_nm
+                   (penalizes hydrophobic length mismatch at raft boundary)
+    - E_crowd:     K_crowd * crowding_count  (optional macroscopic penalty)
+
+    All three terms are scalars; lower E is favored.
+    """
+    if not mem.peptides:
+        return K_crowd * float(mem.crowding_count)
+
+    c2p = _cell2pids(mem)
+    seen_edges = set()
+    same_contacts = 0
+    for c, pids_here in c2p.items():
+        for dq, dr in AX_NEI:
+            nb = (c[0] + dq, c[1] + dr)
+            if nb not in c2p:
+                continue
+            edge = tuple(sorted((c, nb)))
+            if edge in seen_edges:
+                continue
+            seen_edges.add(edge)
+            same = False
+            for pid1 in pids_here:
+                r1 = mem.peptides[pid1]["raft"]
+                for pid2 in c2p[nb]:
+                    if r1 == mem.peptides[pid2]["raft"]:
+                        same = True
+                        break
+                if same:
+                    break
+            if same:
+                same_contacts += 1
+    E_bonds = -J_same * float(same_contacts)
+
+    perimeter_penalty = 0.0
+    leaflet_cache = {}
+    for c_pep, c_nb, pid in _boundary_pairs(mem):
+        cent = mem.peptides[pid]["cent"]
+        if cent not in leaflet_cache:
+            leaflet_cache[cent] = 0.5 * mem.local_membrane_thickness_nm(cent)
+        leaflet = leaflet_cache[cent]
+        Lp = _peptide_length_nm_from_pid(mem, pid)
+        perimeter_penalty += abs(Lp - leaflet)
+    E_mismatch = L_mismatch * perimeter_penalty
+
+    return E_bonds + E_mismatch 
+
+def global_mismatch_delta_h(mem) -> float:
+    """
+    Compute mean hydrophobic mismatch Δh along all raft boundaries:
+        Δh = |L_p - leaflet_thickness|
+    where L_p ≈ 0.15 nm / residue and leaflet_thickness is 0.5 * local_membrane_thickness_nm.
+    """
+    total = 0.0
+    count = 0
+    leaflet_cache = {}
+
+    for c_pep, c_nb, pid in _boundary_pairs(mem):
+        cent = mem.peptides[pid]["cent"]
+        if cent not in leaflet_cache:
+            leaflet_cache[cent] = 0.5 * mem.local_membrane_thickness_nm(cent)
+        leaflet = leaflet_cache[cent]
+        Lp = _peptide_length_nm_from_pid(mem, pid)
+        total += abs(Lp - leaflet)
+        count += 1
+
+    if count == 0:
+        return 0.0
+    return total / float(count)
+
+
+def mismatch_mobility_factor(mem) -> float:
+    """
+    Effective 2D mobility:
+        μ_eff = μ0 / (1 + γ Δh^2),
+    with γ = cfg.MISMATCH_MOBILITY_GAMMA and Δh from global_mismatch_delta_h.
+    This factor is used to scale A1 and R2 event rates.
+    """
+    gamma = getattr(mem.cfg, "MISMATCH_MOBILITY_GAMMA", 0.0)
+    if gamma <= 0.0:
+        return 1.0
+    dh = global_mismatch_delta_h(mem)
+    return 1.0 / (1.0 + gamma * (dh ** 2))
+
+def raft_chirality_counts(mem, raft_id:int) -> Tuple[int, int]:
+    """Return (#D, #L) for a given raft."""
+    d = l = 0
+    for p in mem.peptides.values():
+        if p["raft"] == raft_id:
+            c = p.get("chir", 'L')  
+            if c == 'D':
+                d += 1
+            else:
+                l += 1
+    return d, l
+
+def raft_is_pure_chiral(mem, raft_id:int) -> bool:
+    """True if the raft is all D or all L."""
+    d, l = raft_chirality_counts(mem, raft_id)
+    if d == 0 and l > 0:    
+        return True
+    if l == 0 and d > 0: 
+        return True
+    return False
+
+def _perimeter_by_raft(mem) -> Dict[int, int]:
+    """
+    Return a dict rid -> perimeter_edge_count.
+    Perimeter is counted as number of peptide-cell neighbor edges
+    where the neighbor cell is amphiphile-only (no peptide).
+    """
+    perim = defaultdict(int)
+    for c_pep, c_nb, pid in _boundary_pairs(mem):
+        rid = mem.peptides[pid]["raft"]
+        perim[rid] += 1
+    return perim
+
+def _contact_area_by_pair(mem) -> Dict[Tuple[int, int], int]:
+    """
+    Return {(rid_small, rid_large): contact_edge_count}.
+    Counts each adjacent cell pair once, and sums multiplicity over peptide IDs present
+    on those two cells (if multiple peptide cells touch across the boundary).
+    """
+    c2p = _cell2pids(mem)
+    seen_edges = set()
+    contacts = defaultdict(int)
+
+    for c, pids_here in c2p.items():
+        for dq, dr in AX_NEI:
+            nb = (c[0] + dq, c[1] + dr)
+            if nb not in c2p:
+                continue
+            edge = (c, nb) if c < nb else (nb, c)
+            if edge in seen_edges:
+                continue
+            seen_edges.add(edge)
+
+            for pid1 in pids_here:
+                r1 = mem.peptides[pid1]["raft"]
+                for pid2 in c2p[nb]:
+                    r2 = mem.peptides[pid2]["raft"]
+                    if r1 == r2:
+                        continue
+                    a, b = (r1, r2) if r1 < r2 else (r2, r1)
+                    contacts[(a, b)] += 1
+    return contacts
+
+
+def rate_fission(mem, env):
+    """Macroscopic rate ∝ sum over eligible rafts; guard out pure-chiral rafts when disallowed."""
+    if not mem.cfg.FISSION_ENABLED:
+        return 0.0
+
+    rafts = defaultdict(int)
+    for p in mem.peptides.values():
+        rafts[p["raft"]] += 1
+
+    size_ok = [rid for rid, s in rafts.items() if s >= mem.cfg.FISSION_MIN_SIZE]
+    if not size_ok:
+        return 0.0
+
+    if not mem.cfg.FISSION_ALLOW_PURE_CHIRAL:
+        size_ok = [rid for rid in size_ok if not raft_is_pure_chiral(mem, rid)]
+        if not size_ok:
+            return 0.0
+
+    size_ok = [rid for rid in size_ok if not _r2_blocked(mem, rid, env)]
+    if not size_ok:
+        return 0.0
+
+    sizes = [rafts[rid] for rid in size_ok]
+    mode = mem.cfg.FISSION_SIZE_SCALING
+
+    if mode == "linear":
+        scale = float(sum(sizes))
+    elif mode == "log":
+        scale = float(sum(math.log(s) for s in sizes))
+    elif mode == "perimeter":
+        perim = _perimeter_by_raft(mem)
+        scale = float(sum(perim.get(rid, 0) for rid in size_ok))
+    else:  
+        scale = float(len(sizes))
+
+    k0 = getattr(mem.cfg, "FISSION_K0", 1.0)
+    mu_fac = mismatch_mobility_factor(mem)
+    return k0 * scale * mu_fac
+
+def _rebuild_bonds_for_rafts(mem, raft_ids: Optional[Iterable[int]] = None):
+    """Recompute bonds only for given rafts (or globally if None).
+    Bonds are stored as pid-sorted pairs (i<j)."""
+    bad = []
+    for (i, j) in mem.bonds:
+        if i not in mem.peptides or j not in mem.peptides:
+            bad.append((i, j))
+    for b in bad:
+        mem.bonds.discard(b)
+    if raft_ids is None:
+        mem.bonds.clear()
+        raft_filter = None
+    else:
+        raft_filter = set(raft_ids)
+        to_drop = []
+        for i, j in mem.bonds:
+            ri = mem.peptides[i]["raft"]; rj = mem.peptides[j]["raft"]
+            if ri == rj and ri in raft_filter:
+                to_drop.append((i, j))
+        for e in to_drop: mem.bonds.discard(e)
+
+    c2p = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            c2p[c].append(pid)
+
+    seen = set()
+    for c, pids_here in c2p.items():
+        for dq, dr in AX_NEI:
+            nb = (c[0]+dq, c[1]+dr)
+            if nb not in c2p: 
+                continue
+            edge_key = (c, nb) if c < nb else (nb, c)
+            if edge_key in seen:
+                continue
+            seen.add(edge_key)
+            for i in pids_here:
+                ri = mem.peptides[i]["raft"]
+                for j in c2p[nb]:
+                    if i == j: 
+                        continue
+                    rj = mem.peptides[j]["raft"]
+                    if ri != rj:
+                        continue
+                    if raft_filter is not None and ri not in raft_filter:
+                        continue
+                    a, b = (i, j) if i < j else (j, i)
+                    mem.bonds.add((a, b))
+                    break  
+
+def _purge_cross_raft_bonds(mem):
+    """Remove any bond whose endpoints are no longer in the same raft."""
+    to_drop = []
+    for i, j in mem.bonds:
+        if mem.peptides[i]["raft"] != mem.peptides[j]["raft"]:
+            to_drop.append((i, j))
+    for e in to_drop:
+        mem.bonds.discard(e)
+
+def _refresh_raft_meta(mem, raft_ids: Optional[Iterable[int]] = None):
+    """Compute per-raft counts and fractions deterministically."""
+    mem.raft_meta = mem.raft_meta if raft_ids is not None else {}
+    buckets = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        rid = p["raft"]
+        if raft_ids is not None and rid not in raft_ids:
+            continue
+        buckets[rid].append(pid)
+
+    for rid, pids in buckets.items():
+        n = len(pids)
+        if n == 0:
+            mem.raft_meta[rid] = {"n": 0, "frac_D": 0.0, "frac_inside": 0.0}
+            continue
+        d = sum(1 for pid in pids if mem.peptides[pid].get("chir", "L") == "D")
+        inside = sum(1 for pid in pids if bool(mem.peptides[pid].get("inside", False)))
+        mem.raft_meta[rid] = {
+            "n": n,
+            "frac_D": d / n,
+            "frac_inside": inside / n,
+        }
+def _reconcile_after_split(mem, rid_old: int, rid_new: int, moved: List[int]):
+
+    _rebuild_bonds_for_rafts(mem, [rid_old, rid_new])
+    _purge_cross_raft_bonds(mem)
+    _refresh_raft_meta(mem, [rid_old, rid_new])
+
+def _choose_bridge_cut_smallest_first(nodes_set: set[int], adj: Dict[int, set[int]], bridges: Iterable[Tuple[int,int]]):
+    """
+    Deterministically choose a bridge:
+      1) minimize min(|u_side|, |v_side|)
+      2) tie-break by lexicographic (u, v) with u < v
+    Returns the chosen cut (u, v).
+    """
+    best = None
+    for cut in bridges:
+        u, v = cut if cut[0] < cut[1] else (cut[1], cut[0])
+        u_side, v_side = _subcomponents_after_cut(nodes_set, adj, (u, v))
+        if not u_side or not v_side:
+            continue
+        small = min(len(u_side), len(v_side))
+        key = (small, (u, v))  
+        if best is None or key < best[0]:
+            best = (key, (u, v))
+    return None if best is None else best[1]
+
+def do_fission(mem, env):
+    """Perform R2_plus_fission: cut a bridge (or weak edge) inside one eligible raft.
+
+    Implementation detail:
+    - We do NOT move positions; we split the raft by reassigning one side of the
+      chosen cut to a new raft id. Mass is preserved; only connectivity changes.
+    """
+    rafts = defaultdict(int)
+    for p in mem.peptides.values():
+        rafts[p["raft"]] += 1
+    candidates = [rid for rid, s in rafts.items() if s >= mem.cfg.FISSION_MIN_SIZE]
+    if not mem.cfg.FISSION_ALLOW_PURE_CHIRAL:
+        candidates = [rid for rid in candidates if not raft_is_pure_chiral(mem, rid)]
+    if not candidates:
+        return
+    rid = random.choice(candidates)
+    nodes, adj = _raft_ids_and_adjacency(mem, rid)
+    if not nodes:
+        return
+
+    if mem.cfg.FISSION_HEURISTIC == "bridge":
+        bridges = list(_bridges_tarjan(nodes, adj))
+        if not bridges:
+            return
+        nodes_set = set(nodes)
+        cut = _choose_bridge_cut_smallest_first(nodes_set, adj, bridges)
+        if cut is None:
+            return
+    elif mem.cfg.FISSION_HEURISTIC == "weak-edge":
+        scores = _weak_edge_scores(nodes, adj)
+        if not scores:
+            return
+        keys, vals = zip(*scores.items())
+        logits = np.array([-v for v in vals], dtype=float)
+        logits -= logits.max()
+        p = np.exp(logits); p /= p.sum()
+        cut = keys[np.random.choice(len(keys), p=p)]
+    else:
+        return
+
+    nodes_set = set(nodes)
+    u_side, v_side = _subcomponents_after_cut(nodes_set, adj, cut)
+    if not u_side or not v_side:
+        return
+
+    existing_rids = {p["raft"] for p in mem.peptides.values()}
+    candidate = (max(existing_rids) + 1) if existing_rids else 0
+    new_raft = max(candidate, mem.raft_counter)
+    mem.raft_counter = max(mem.raft_counter, new_raft + 1)
+
+    E_before = total_energy(mem)
+
+    moved = list(u_side if len(u_side) <= len(v_side) else v_side)
+    for pid in moved:
+        mem.peptides[pid]["raft"] = new_raft
+
+    E_after = total_energy(mem)
+    dE = E_after - E_before
+
+    if not accept_move(env.beta, dE):
+        for pid in moved:
+            mem.peptides[pid]["raft"] = rid
+        mem.raft_counter -= 1
+        return
+
+    u_side2, v_side2 = _subcomponents_after_cut(nodes_set, adj, cut)
+    sizes_new = [int(len(u_side2)), int(len(v_side2))]
+    sizes_new.sort()
+
+    mem.event_log.append({
+        "event": "R2_plus_fission",
+        "raft_id_old": int(rid),
+        "raft_ids_new": [int(rid), int(new_raft)], 
+        "size_old": int(len(nodes)),
+        "sizes_new": sizes_new,
+        "heuristic": mem.cfg.FISSION_HEURISTIC,
+        "beta": float(env.beta),
+        "deltaE": float(dE)
+    })
+    _mark_r2(mem, rid, env, "fission")
+    _mark_r2(mem, new_raft, env, "fission")
+    _reconcile_after_split(mem, rid, new_raft, moved)
+
+
+def rate_fusion(mem, env):
+    """
+    Attempt frequency proportional to total contact area across all touching raft pairs.
+    """
+    contacts = _contact_area_by_pair(mem)
+    if not contacts:
+        return 0.0
+
+    allowed = {pair: cnt for pair, cnt in contacts.items()
+            if not _r2_blocked(mem, pair[0], env) and not _r2_blocked(mem, pair[1], env)}
+    total = sum(allowed.values())
+    if total <= 0:
+        return 0.0
+    mu_fac = mismatch_mobility_factor(mem)
+    return mem.cfg.FUSION_K0 * float(total) * mu_fac
+
+def _reconcile_after_fusion(mem, target: int, source: int, changed: List[int]):
+    if not (target < source):
+        target, source = (min(target, source), max(target, source))
+        for pid in changed:
+            mem.peptides[pid]["raft"] = target
+
+    _rebuild_bonds_for_rafts(mem, [target])   
+    _purge_cross_raft_bonds(mem)
+
+    _refresh_raft_meta(mem, [target])
+    if source in mem.raft_meta:
+        mem.raft_meta.pop(source, None)
+
+def do_fusion(mem, env):
+    """Propose merging two touching rafts; accept via Metropolis; otherwise revert."""
+    contacts = _contact_area_by_pair(mem)
+    if not contacts:
+        return
+
+    pairs = [p for p in contacts.keys()
+             if not _r2_blocked(mem, p[0], env) and not _r2_blocked(mem, p[1], env)]
+    if not pairs:
+        return
+
+    weights = np.array([contacts[p] for p in pairs], dtype=float)
+    probs = weights / weights.sum()
+    target, source = pairs[np.random.choice(len(pairs), p=probs)]  
+
+    E_before = total_energy(mem)
+
+    pre_counts = defaultdict(int)
+    for p in mem.peptides.values():
+        pre_counts[p["raft"]] += 1
+    size_a = int(pre_counts.get(target, 0))
+    size_b = int(pre_counts.get(source, 0))
+
+    changed = [pid for pid, p in mem.peptides.items() if p["raft"] == source]
+    for pid in changed:
+        mem.peptides[pid]["raft"] = target
+
+    E_after = total_energy(mem)
+    dE = E_after - E_before
+    if not accept_move(env.beta, dE):
+        for pid in changed:
+            mem.peptides[pid]["raft"] = source
+        return
+
+    post_counts = defaultdict(int)
+    for p in mem.peptides.values():
+        post_counts[p["raft"]] += 1
+    size_new = int(post_counts.get(target, 0))
+
+    mem.event_log.append({
+        "event": "R2_minus_fusion",
+        "raft_ids_old": [int(target), int(source)],
+        "raft_id_new": int(target),
+        "sizes_old": [size_a, size_b],
+        "size_new": size_new,
+        "beta": float(env.beta),
+        "deltaE": float(dE)
+    })
+
+    _mark_r2(mem, target, env, "fusion")
+    _reconcile_after_fusion(mem, target, source, changed)
+
+def peptide_local_mismatch(mem, pid: int, leaflet_cache: Optional[Dict[Tuple[int, int], float]] = None) -> float:
+    """
+    Per-peptide hydrophobic mismatch Δh = |L_p - leaflet_thickness(center)|
+    using the same geometric definition as in total_energy/global_mismatch_delta_h.
+    """
+    p = mem.peptides[pid]
+    cent = p["cent"]
+    if leaflet_cache is not None:
+        if cent not in leaflet_cache:
+            leaflet_cache[cent] = 0.5 * mem.local_membrane_thickness_nm(cent)
+        leaflet = leaflet_cache[cent]
+    else:
+        leaflet = 0.5 * mem.local_membrane_thickness_nm(cent)
+    Lp = _peptide_length_nm_from_pid(mem, pid)
+    return abs(Lp - leaflet)
+
+def draw_frame(
+    mem,
+    path: Path,
+    border: float = 1.0,
+    title: Optional[str] = None,
+    color_mode: str = "raft",   # "raft" (default) or "mismatch"
+):
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # --- Background: amphiphiles in grayscale by carbon length ---
     minC, maxC = mem.cfg.INIT_CARBON_MIN, mem.cfg.INIT_CARBON_MAX
-    for (q,r), info in mem.amph.items():
-        x,y = axial_to_xy(q,r, mem.hex_radius)
-        t = (info["carbon"] - minC) / max(1e-6,(maxC - minC))
-        t = min(max(t,0.0),1.0)
-        base = 0.92 - 0.25*t
+    for (q, r), info in mem.amph.items():
+        x, y = axial_to_xy(q, r, mem.hex_radius)
+        t = (info["carbon"] - minC) / max(1e-6, (maxC - minC))
+        t = min(max(t, 0.0), 1.0)
+        base = 0.92 - 0.25 * t
         color = (base, base, base)
-        # FIX APPLIED: All arguments are now explicit keywords to bypass parser error
-        patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, orientation=radians(30), facecolor=color, edgecolor='k', linewidth=0.5)
+        patch = RegularPolygon(
+            xy=(x, y),
+            numVertices=6,
+            radius=mem.hex_radius,
+            orientation=radians(30),
+            facecolor=color,
+            edgecolor='k',
+            linewidth=0.5,
+        )
         ax.add_patch(patch)
         if mem.cfg.LABEL_CARBONS:
             ax.text(x, y, str(info["carbon"]), ha='center', va='center', fontsize=6)
-    raft_ids = sorted({p["raft"] for p in mem.peptides.values()}) if mem.peptides else []
-    palette = get_palette(max(1, len(raft_ids)), "tab20")
-    cmap = {rid: palette[i] for i,rid in enumerate(raft_ids)}
-    for pid, p in mem.peptides.items():
-        cells = rotate_triad(p["cent"], p["orient"])
-        fc = cmap.get(p["raft"], (0.8,0.2,0.2))
-        lw = 1.5 if p["inside"] else 0.6
-        for (q,r) in cells:
-            x,y = axial_to_xy(q,r, mem.hex_radius)
-            # FIX APPLIED: All arguments are now explicit keywords
-            patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, facecolor=fc, edgecolor='black', orientation=radians(30), linewidth=lw)
-            ax.add_patch(patch)
-    qmin,qmax = -mem.n, mem.n
-    rmin,rmax = -mem.n, mem.n
+
+    # --- Foreground: peptides (triads) ---
+    # Option 1: color by raft ID (old behavior)
+    if color_mode == "raft":
+        raft_ids = sorted({p["raft"] for p in mem.peptides.values()}) if mem.peptides else []
+        palette = get_palette(max(1, len(raft_ids)), "tab20")
+        cmap_raft = {rid: palette[i] for i, rid in enumerate(raft_ids)}
+
+        for pid, p in mem.peptides.items():
+            cells = rotate_triad(p["cent"], p["orient"])
+            fc = cmap_raft.get(p["raft"], (0.8, 0.2, 0.2))
+            lw = 1.5 if p["inside"] else 0.6
+            for (q, r) in cells:
+                x, y = axial_to_xy(q, r, mem.hex_radius)
+                patch = RegularPolygon(
+                    xy=(x, y),
+                    numVertices=6,
+                    radius=mem.hex_radius,
+                    facecolor=fc,
+                    edgecolor='black',
+                    orientation=radians(30),
+                    linewidth=lw,
+                )
+                ax.add_patch(patch)
+
+    # Option 2: color by local mismatch Δh = |L_p − leaflet|
+    elif color_mode == "mismatch":
+        if mem.peptides:
+            leaflet_cache: Dict[Tuple[int, int], float] = {}
+            mismatch_by_pid: Dict[int, float] = {
+                pid: peptide_local_mismatch(mem, pid, leaflet_cache) for pid in mem.peptides
+            }
+            vals = list(mismatch_by_pid.values())
+            vmin, vmax = min(vals), max(vals)
+            if vmax <= vmin:
+                vmax = vmin + 1e-9
+
+            # Use a perceptually nice continuous cmap
+            cmap = mpl.colormaps.get("viridis", plt.get_cmap("viridis"))
+            norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+            sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+            for pid, p in mem.peptides.items():
+                cells = rotate_triad(p["cent"], p["orient"])
+                m = mismatch_by_pid[pid]
+                fc = cmap(norm(m))
+                lw = 1.5 if p["inside"] else 0.6
+                for (q, r) in cells:
+                    x, y = axial_to_xy(q, r, mem.hex_radius)
+                    patch = RegularPolygon(
+                        xy=(x, y),
+                        numVertices=6,
+                        radius=mem.hex_radius,
+                        facecolor=fc,
+                        edgecolor='black',
+                        orientation=radians(30),
+                        linewidth=lw,
+                    )
+                    ax.add_patch(patch)
+
+            # Colorbar to read off mismatch amplitude
+            cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label("|L_p − leaflet thickness| (nm)")
+
+    else:
+        raise ValueError(f"Unknown color_mode='{color_mode}'. Use 'raft' or 'mismatch'.")
+
+    # --- View limits / framing ---
+    qmin, qmax = -mem.n, mem.n
+    rmin, rmax = -mem.n, mem.n
     corners = [
-        axial_to_xy(qmin,rmin, mem.hex_radius), axial_to_xy(qmin,rmax, mem.hex_radius),
-        axial_to_xy(qmax,rmin, mem.hex_radius), axial_to_xy(qmax,rmax, mem.hex_radius),
-        axial_to_xy(0,-mem.n, mem.hex_radius), axial_to_xy(0,mem.n, mem.hex_radius),
-        axial_to_xy(-mem.n,0, mem.hex_radius), axial_to_xy(mem.n,0, mem.hex_radius)
+        axial_to_xy(qmin, rmin, mem.hex_radius), axial_to_xy(qmin, rmax, mem.hex_radius),
+        axial_to_xy(qmax, rmin, mem.hex_radius), axial_to_xy(qmax, rmax, mem.hex_radius),
+        axial_to_xy(0, -mem.n, mem.hex_radius),  axial_to_xy(0, mem.n, mem.hex_radius),
+        axial_to_xy(-mem.n, 0, mem.hex_radius),  axial_to_xy(mem.n, 0, mem.hex_radius),
     ]
-    xs = [c[0] for c in corners]; ys = [c[1] for c in corners]
-    xmin, xmax = min(xs)-border, max(xs)+border
-    ymin, ymax = min(ys)-border, max(ys)+border
-    ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
-    if title: ax.set_title(title)
-    fig.savefig(path, dpi=150, bbox_inches="tight"); plt.close(fig)
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    xmin, xmax = min(xs) - border, max(xs) + border
+    ymin, ymax = min(ys) - border, max(ys) + border
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+
+    if title:
+        ax.set_title(title)
+
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 @dataclass
 class DiurnalEnv:
@@ -750,6 +1442,7 @@ def run_sim(cfg:Config):
     draw_frame(mem, frames_dir / "frame_0000.png", title="t=0")
 
     for step in range(1, cfg.TOTAL_EVENTS+1):
+        env.step_idx = step
         _ = sched.step(mem, env)
         if cfg.CROWDING_DECAY > 0 and mem.crowding_count > 0:
             mem.crowding_count = max(0, mem.crowding_count - cfg.CROWDING_DECAY)
@@ -764,13 +1457,14 @@ def run_sim(cfg:Config):
     amph_for_json = {f"({q},{r})": data for (q,r), data in mem.amph.items()}
     state = {
         "n": mem.n,
-        "hex_radius": mem.hex_radius,   # <- was HEX_RADIUS
+        "hex_radius": mem.hex_radius,   \
         "amph": amph_for_json,
         "peptides": {int(pid): {
             "cent": list(p["cent"]),
             "orient": int(p["orient"]),
             "raft": int(p["raft"]),
-            "inside": bool(p.get("inside", False))
+            "inside": bool(p.get("inside", False)),
+            "chir": p.get("chir", "L"),
             } for pid,p in mem.peptides.items()}
     }
 
@@ -799,7 +1493,9 @@ def run_sim(cfg:Config):
     (cfg.OUT / "mass_check.json").write_text(json.dumps(mass, indent=2))
     (cfg.OUT / "peptide_pool.json").write_text(json.dumps(mem.pool, indent=2))
     (cfg.OUT / "crowding.json").write_text(json.dumps({"crowding_count": mem.crowding_count}, indent=2))
-
+    (cfg.OUT / "event_log.json").write_text(json.dumps(mem.event_log, indent=2))
+    if cfg.FISSION_ENABLED:
+        run_validation_sweep(mem, env, sched, cfg.OUT, n_steps=20000)
     generate_monte_carlo_histogram(cfg.OUT)
 
 def generate_monte_carlo_histogram(out_path: Path, n_samples:int=5000):
@@ -877,6 +1573,14 @@ def parse_args():
     p.add_argument("--RAFT_DIFF_SIZE_EXP", type=float, default=1.0)
     p.add_argument("--FUSION_IRREVERSIBLE", action="store_true")
     p.add_argument("--FUSION_SIZE_THRESH", type=int, default=6)
+    p.add_argument("--FUSION_K0", type=float, default=1.0)
+    p.add_argument("--FISSION_MIN_SIZE", type=int, default=4)
+    p.add_argument("--FISSION_HEURISTIC", type=str, default="bridge",choices=["bridge", "weak-edge"])
+    p.add_argument("--FISSION_K0", type=float, default=1.0)
+    p.add_argument("--FISSION_SIZE_SCALING", type=str, default="linear",choices=["linear", "log", "none", "perimeter"])
+    p.add_argument("--FISSION_ENABLED", action="store_true",help="Enable R2_plus_fission/R2_minus_fusion reversible pair")
+    p.add_argument("--FISSION_ALLOW_PURE_CHIRAL", action="store_true",help="Allow fission of pure-chiral rafts (all D or all L). Default False.")
+    p.add_argument("--MISMATCH_MOBILITY_GAMMA", type=float, default=0.0,help="Couple hydrophobic mismatch Δh to mobility μ via μ_eff = μ0 / (1 + γ Δh^2).")
     return p.parse_args()
 
 
@@ -895,8 +1599,16 @@ def cfg_from_args(args) -> Config:
         DESORB_TO_CROWDING=args.DESORB_TO_CROWDING,
         DISCARD_TO_CROWDING_P=args.DISCARD_TO_CROWDING_P,
         RAFT_D0=args.RAFT_D0, RAFT_DIFF_SIZE_EXP=args.RAFT_DIFF_SIZE_EXP,
+        MISMATCH_MOBILITY_GAMMA=args.MISMATCH_MOBILITY_GAMMA,
         FUSION_IRREVERSIBLE=args.FUSION_IRREVERSIBLE,
         FUSION_SIZE_THRESH=args.FUSION_SIZE_THRESH,
+        FUSION_K0=args.FUSION_K0,
+        FISSION_MIN_SIZE=args.FISSION_MIN_SIZE,
+        FISSION_HEURISTIC=args.FISSION_HEURISTIC,
+        FISSION_SIZE_SCALING=args.FISSION_SIZE_SCALING,
+        FISSION_K0=args.FISSION_K0,
+        FISSION_ENABLED=args.FISSION_ENABLED,
+        FISSION_ALLOW_PURE_CHIRAL=args.FISSION_ALLOW_PURE_CHIRAL,
     )
 
     # mismatch / visualization parameters
