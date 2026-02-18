@@ -1,1 +1,3 @@
-<paste the .gitignore above>
+*.doc
+*.docx
+
