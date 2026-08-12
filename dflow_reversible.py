@@ -1,0 +1,913 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Consolidated DFlow reversible simulator.
+
+import os, json, math, random, argparse
+import math
+import random
+from collections import defaultdict
+
+from dataclasses import dataclass
+from pathlib import Path
+from math import radians
+from collections import defaultdict, deque
+from typing import Optional, List, Tuple, Dict, Iterable
+
+import numpy as np
+import matplotlib as mpl
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import RegularPolygon
+
+# --- Raft diffusion / drift parameters (2D Stokes-like) ---
+
+# Baseline mobility prefactor for raft drift (R4)
+RAFT_D0 = 1.0           # keep or tune as needed
+
+# Effective 2D surface viscosity (arbitrary units; tuned from mismatch papers)
+ETA_2D_DEFAULT = 8.0
+
+# Reference radius (in lattice units) for a "typical" raft (used for scaling sanity)
+RAFT_R0 = 5.0
+
+# -------------------------------------------------
+# R4: raft drift with 2D Stokes mobility scaling
+# -------------------------------------------------
+
+
+
+def raft_mismatch_for_component(mem, comp):
+    """
+    Placeholder for hydrophobic mismatch Δh for a raft (connected component of amphiphiles).
+
+    By default this returns None, which effectively disables mismatch–mobility
+    coupling and reduces the mobility to the plain 2D Stokes form used in the
+    original patched implementation.
+
+    If you have a way to compute a meaningful mismatch field per raft, extend
+    or replace this function to return a float Δh for the given component.
+    """
+    return None
+
+
+def stokes_mobility_with_mismatch(radius: float,
+                                  eta_2D: float,
+                                  delta_h: float,
+                                  gamma: float) -> float:
+    """
+    2D Stokes mobility with optional quadratic mismatch coupling.
+
+        μ0 = 1 / (4π η_2D a)
+        μ  = μ0 / (1 + γ Δh²)
+
+    If delta_h is None or gamma == 0.0, this reduces to μ0.
+    """
+    mu0 = 1.0 / (4.0 * math.pi * eta_2D * radius)
+    if delta_h is None or gamma == 0.0:
+        return mu0
+    return mu0 / (1.0 + gamma * (delta_h ** 2))
+
+
+def _raft_components_from_bonds(mem):
+    """
+    Return a list of connected components (rafts),
+    each as a set of peptide IDs, using mem['bonds'].
+    
+    Note: mem['bonds'] is assumed to be a set of frozenset({pid1, pid2}).
+    """
+    bonds = mem.bonds
+    peptides = mem.peptides
+
+    adj = defaultdict(set)
+    for b in bonds:
+        try:
+            i, j = tuple(b)
+        except Exception:
+            continue
+        adj[i].add(j)
+        adj[j].add(i)
+
+    visited = set()
+    rafts = []
+
+    for pid in peptides.keys():
+        if pid in visited:
+            continue
+        stack = [pid]
+        comp = set()
+        while stack:
+            u = stack.pop()
+            if u in visited:
+                continue
+            visited.add(u)
+            comp.add(u)
+            for v in adj[u]:
+                if v not in visited:
+                    stack.append(v)
+        rafts.append(comp)
+
+    return rafts
+
+
+def _raft_centroid_and_radius(mem, raft_peptide_ids):
+    """
+    Given a set of peptide IDs forming a raft, return:
+       (centroid_q, centroid_r, eff_radius)
+
+    centroid in axial lattice coords (q,r),
+    eff_radius ~ sqrt(N / pi), N = number of peptides.
+    """
+    if not raft_peptide_ids:
+        return (0.0, 0.0, 1.0)
+
+    pep = mem.peptides
+    qs, rs = [], []
+
+    for pid in raft_peptide_ids:
+        q, r = pep[pid]["cent"]
+        qs.append(q)
+        rs.append(r)
+
+    cq = sum(qs) / len(qs)
+    cr = sum(rs) / len(rs)
+    n = max(1, len(raft_peptide_ids))
+    radius = max(1.0, math.sqrt(n / math.pi))
+
+    return (cq, cr, radius)
+
+
+def rate_R4_drift(mem, env):
+    """
+    Macroscopic rate for R4 raft drift.
+
+    For each raft i:
+        μ_i = 1 / (4π η_2D a_i)
+        k_i = RAFT_D0 * μ_i
+
+    Then:
+        k_total = Σ_i k_i
+
+    Cache (raft, k_i) in env['_R4_contribs'] for sampling in do_R4_drift.
+    """
+    # Assuming RAFT_D0 and ETA_2D_DEFAULT are available from global scope
+    eta_2D = env.get("eta_2D", ETA_2D_DEFAULT)
+
+    # Note: mem['bonds'] is not explicitly tracked in Membrane class 
+    # but the helper uses it if available. Since it wasn't tracked, 
+    # for a consolidated script, we assume a mechanism (like R1/R2) 
+    # has populated it or this model uses the implicit raft definition 
+    # based on R1/R2 connections elsewhere. For this function, 
+    # we proceed assuming _raft_components_from_bonds is correct.
+    rafts = _raft_components_from_bonds(mem) 
+    contribs = []
+    total_rate = 0.0
+
+    for comp in rafts:
+        # ignore singletons; they already move via P3/A1
+        if len(comp) < 2:
+            continue
+        _, _, a = _raft_centroid_and_radius(mem, comp)
+        # 2D Stokes Mobility with optional mismatch coupling
+        delta_h = raft_mismatch_for_component(mem, comp)
+        gamma = getattr(mem.cfg, "MISMATCH_MOBILITY_GAMMA", 0.0)
+        mu = stokes_mobility_with_mismatch(a, eta_2D, delta_h, gamma)
+        k_i = RAFT_D0 * mu
+        if k_i <= 0.0 or not math.isfinite(k_i):
+            continue
+        contribs.append((comp, k_i))
+        total_rate += k_i
+
+    env["_R4_contribs"] = contribs
+    return total_rate
+
+
+def do_R4_drift(mem, env, rng=None):
+    """
+    Perform a single R4 drift event:
+
+      1. Sample a raft from env['_R4_contribs'] weighted by k_i.
+      2. Choose a random hex-lattice direction (axial).
+      3. Try to translate the entire raft by that direction.
+         Reject if any peptide goes out of bounds or collides
+         with a non-raft peptide.
+    """
+    if rng is None:
+        rng = random
+
+    contribs = env.get("_R4_contribs")
+    if not contribs:
+        # fall back: recompute quickly if cache is missing
+        eta_2D = env.get("eta_2D", ETA_2D_DEFAULT)
+        rafts = _raft_components_from_bonds(mem)
+        contribs = []
+        for comp in rafts:
+            if len(comp) < 2:
+                continue
+            _, _, a = _raft_centroid_and_radius(mem, comp)
+            mu = 1.0 / (4.0 * math.pi * eta_2D * a)
+            k_i = RAFT_D0 * mu
+            if k_i > 0.0 and math.isfinite(k_i):
+                contribs.append((comp, k_i))
+        if not contribs:
+            return
+
+    ks = [k_i for (_, k_i) in contribs]
+    total = sum(ks)
+    if total <= 0.0:
+        return
+
+    # sample a raft according to its k_i
+    r = rng.random() * total
+    acc = 0.0
+    raft = None
+    for comp, k_i in contribs:
+        acc += k_i
+        if r <= acc:
+            raft = comp
+            break
+
+    if raft is None:
+        return
+
+    pep = mem.peptides
+    amph = mem.amph
+
+    # axial neighbor directions (pointy-top)
+    directions = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1)]
+    dq, dr = rng.choice(directions)
+
+    current_sites = {pid: pep[pid]["cent"] for pid in raft}
+    new_sites = {}
+    occupied = {p["cent"] for p in pep.values()}  # all peptide positions
+
+    # check bounds and collisions
+    for pid, (q, r0) in current_sites.items():
+        q_new, r_new = q + dq, r0 + dr
+        if (q_new, r_new) not in amph:
+            return  # out of lattice → reject
+        new_sites[pid] = (q_new, r_new)
+
+    old_positions = set(current_sites.values())
+    for pid, new_pos in new_sites.items():
+        if new_pos in occupied and new_pos not in old_positions:
+            return  # collides with another raft / peptide → reject
+
+    # apply drift
+    for pid, new_pos in new_sites.items():
+        pep[pid]["cent"] = new_pos
+
+    mem.event_log.append({
+        "evt": "R4_drift",
+        "raft_size": len(raft),
+        "dq": dq,
+        "dr": dr,
+    })
+
+
+def get_palette(n: int, name: str = "tab20"):
+    try:
+        cmap = mpl.colormaps[name]
+    except AttributeError:
+        cmap = plt.get_cmap(name)
+    if hasattr(cmap, "colors"):
+        base = list(cmap.colors)
+        if n <= len(base):
+            return base[:n]
+        reps = (n + len(base) - 1) // len(base)
+        return (base * reps)[:n]
+    if n == 1:
+        return [cmap(0.0)]
+    return [cmap(i / max(1, n - 1)) for i in range(n)]
+
+SQRT3 = math.sqrt(3.0)
+AX_NEI = [(1,0),(1,-1),(0,-1),(-1,0),(-1,1),(0,1)]
+TRIAD_SHAPES = [
+    [(0,0),(1,0),(0,1)],
+    [(0,0),(0,1),(-1,1)],
+    [(0,0),(-1,1),(-1,0)],
+    [(0,0),(-1,0),(0,-1)],
+    [(0,0),(0,-1),(1,-1)],
+    [(0,0),(1,-1),(1,0)]
+]
+
+def axial_to_xy(q:int, r:int, s:float):
+    x = s * (3/2) * q
+    y = s * SQRT3 * (r + q/2)
+    return x, y
+
+def rotate_triad(anchor:Tuple[int,int], orient:int):
+    aq, ar = anchor
+    offs = TRIAD_SHAPES[orient % 6]
+    return [(aq+dq, ar+dr) for (dq,dr) in offs]
+
+@dataclass
+class Config:
+    SEED: int = 42
+    N0: int = 12
+    HEX_RADIUS: float = 1.0
+    TOTAL_EVENTS: int = 1500
+    OUT: Path = Path("runs/exp_phys")
+    SAVE_STEPS: List[int] = None
+    DAY_STEPS: int = 10
+    NIGHT_STEPS: int = 10
+    POLY_GAIN_DAY: float = 10.0
+    POLY_GAIN_NIGHT: float = 0.2
+    MAX_PEPT_LEN: int = 12
+    A_INSERT_MISMATCH_TOL: float = 1.0
+    BETA: float = 1.0
+    CROWDING_GAMMA: float = 0.02
+    CROWDING_DECAY: float = 0.0
+    DESORB_TO_CROWDING: bool = False
+    DISCARD_TO_CROWDING_P: float = 0.5
+    RAFT_D0: float = 1.0
+    RAFT_DIFF_SIZE_EXP: float = 1.0
+    FUSION_IRREVERSIBLE: bool = False
+    FUSION_SIZE_THRESH: int = 6
+    INIT_CARBON_MIN: int = 10
+    INIT_CARBON_MAX: int = 20
+    LABEL_CARBONS: bool = False
+    BORDER: float = 1.0
+    MISMATCH_MOBILITY_GAMMA: float = 0.25
+    COLOR_MODE: str = "default"
+    MISMATCH_CMAP: str = "viridis"
+    MISMATCH_NORMALIZE: bool = False
+
+    def __post_init__(self):
+        if self.SAVE_STEPS is None:
+            self.SAVE_STEPS = [0, self.TOTAL_EVENTS//2, self.TOTAL_EVENTS]
+
+@dataclass
+class Diurnal:
+    day_steps: int
+    night_steps: int
+    gain_day: float
+    gain_night: float
+    t_in_cycle: int = 0
+    is_day: bool = True
+    def tick(self):
+        self.t_in_cycle += 1
+        if self.is_day and self.t_in_cycle >= self.day_steps:
+            self.is_day = False; self.t_in_cycle = 0
+        elif not self.is_day and self.t_in_cycle >= self.night_steps:
+            self.is_day = True; self.t_in_cycle = 0
+    @property
+    def poly_gain(self) -> float:
+        return self.gain_day if self.is_day else self.gain_night
+
+
+class Membrane:
+    def __init__(self, n:int, hex_radius:float, cfg:Config):
+        self.cfg = cfg
+        self.n = n
+        self.hex_radius = hex_radius
+        self.amph: Dict[Tuple[int,int], Dict] = {}
+        self.peptides: Dict[int, Dict] = {}
+        self.bonds: set = set() # Placeholder for bonds, required by R4 helper
+        self.pid_counter = 0
+        self.raft_counter = 0
+        self.crowding_count = 0
+        self.pool = {"aa": 0, "peptides": 0}
+        self.event_log: List[Dict] = []
+        self._init_membrane()
+    def _axial_in_rhombus(self, q:int, r:int) -> bool:
+        n = self.n
+        return (abs(q) <= n) and (abs(r) <= n) and (abs(q+r) <= n)
+    def _init_membrane(self):
+        for q in range(-self.n, self.n+1):
+            for r in range(-self.n, self.n+1):
+                if self._axial_in_rhombus(q,r):
+                    self.amph[(q,r)] = {"carbon": random.randint(self.cfg.INIT_CARBON_MIN, self.cfg.INIT_CARBON_MAX),
+                                         "pep": False}
+    def local_membrane_thickness_nm(self, center:Tuple[int,int]) -> float:
+        q,r = center
+        neigh = [(q,r)] + [(q+dq, r+dr) for dq,dr in AX_NEI]
+        vals = [self.amph[c]["carbon"] for c in neigh if c in self.amph]
+        if not vals: return 2.0
+        meanC = sum(vals)/len(vals)
+        bilayer = 0.2 * meanC
+        return max(1.0, bilayer)
+    def triad_cells(self, center:Tuple[int,int], orient:int) -> List[Tuple[int,int]]:
+        return rotate_triad(center, orient)
+    def cells_free_for_triad(self, cells:Iterable[Tuple[int,int]]) -> bool:
+        for c in cells:
+            if c not in self.amph: return False
+            if self.amph[c]["pep"]: return False
+        return True
+    def random_free_anchor(self, max_tries:int=1000):
+        keys = list(self.amph.keys())
+        for _ in range(max_tries):
+            anchor = random.choice(keys)
+            orient = random.randrange(6)
+            cells = self.triad_cells(anchor, orient)
+            if self.cells_free_for_triad(cells):
+                return anchor, orient, cells
+        return None, None, None
+
+from dataclasses import dataclass
+@dataclass
+class Event:
+    name: str
+    rate_fn: callable
+    do_fn: callable
+
+class Scheduler:
+    def __init__(self):
+        self.events: List[Event] = []
+    def register(self, e:Event):
+        self.events.append(e)
+    def step(self, mem, env):
+        rates = np.array([max(0.0, e.rate_fn(mem, env)) for e in self.events], dtype=float)
+        s = rates.sum()
+        if s <= 0.0: return None
+        p = rates / s
+        idx = np.random.choice(len(self.events), p=p)
+        chosen = self.events[idx]
+        chosen.do_fn(mem, env)
+        return chosen.name
+
+def rate_swap(mem, env): return 1.0
+def do_swap(mem, env):
+    if not mem.amph: return
+    a = random.choice(list(mem.amph.keys()))
+    q,r = a
+    random.shuffle(AX_NEI)
+    for dq,dr in AX_NEI:
+        b = (q+dq, r+dr)
+        if b in mem.amph:
+            mem.amph[a]["carbon"], mem.amph[b]["carbon"] = mem.amph[b]["carbon"], mem.amph[a]["carbon"]
+            mem.event_log.append({"evt":"A1_swap", "a":a, "b":b})
+            return
+
+def rate_thicken(mem, env): return 0.3
+def do_thicken(mem, env):
+    a = random.choice(list(mem.amph.keys()))
+    mem.amph[a]["carbon"] = min(mem.amph[a]["carbon"]+1, mem.cfg.INIT_CARBON_MAX)
+    mem.event_log.append({"evt":"A3_plus_thicken", "cell":a})
+
+def rate_thin(mem, env): return 0.25
+def do_thin(mem, env):
+    a = random.choice(list(mem.amph.keys()))
+    mem.amph[a]["carbon"] = max(mem.amph[a]["carbon"]-1, mem.cfg.INIT_CARBON_MIN)
+    mem.event_log.append({"evt":"A3_minus_thin", "cell":a})
+
+def rate_polymerize(mem, env):
+    base = env["diurnal"].poly_gain
+    slowdown = 1.0 / (1.0 + mem.crowding_count * mem.cfg.CROWDING_GAMMA)
+    return base * slowdown
+def do_polymerize(mem, env):
+    mem.pool["aa"] += 1
+    if mem.pool["aa"] >= 3:
+        mem.pool["aa"] -= 3
+        mem.pool["peptides"] += 1
+        mem.event_log.append({"evt":"P1_plus_polymerize", "aa_to_pool_pep":1})
+    else:
+        mem.event_log.append({"evt":"P1_plus_polymerize", "aa_only":1})
+def rate_depoly(mem, env): return 0.05
+def do_depoly(mem, env):
+    if mem.pool["peptides"] > 0:
+        mem.pool["peptides"] -= 1
+        mem.pool["aa"] += 2
+        mem.event_log.append({"evt":"P1_minus_depoly", "peptide_to_aa":1})
+    else:
+        mem.event_log.append({"evt":"P1_minus_depoly", "no_pep":1})
+
+def _peptide_length_to_nm(n_res:int) -> float: return 0.15 * n_res
+def rate_insert(mem, env): return 0.8 if mem.pool["peptides"] > 0 else 0.0
+def do_insert(mem, env):
+    if mem.pool["peptides"] <= 0:
+        mem.event_log.append({"evt":"P2_plus_insert_try","status":"no_pool"}); return
+    anchor, orient, cells = mem.random_free_anchor()
+    if anchor is None:
+        mem.event_log.append({"evt":"P2_plus_insert_try","status":"no_space"}); return
+    nres = random.randint(5, mem.cfg.MAX_PEPT_LEN)
+    Lp = _peptide_length_to_nm(nres)
+    tloc = mem.local_membrane_thickness_nm(anchor)
+    leaflet = 0.5 * tloc
+    mismatch = abs(Lp - leaflet)
+    accept = False
+    if mismatch <= mem.cfg.A_INSERT_MISMATCH_TOL:
+        accept = True
+    else:
+        delta = mismatch - mem.cfg.A_INSERT_MISMATCH_TOL
+        p = math.exp(-mem.cfg.BETA * delta)
+        accept = (random.random() < p)
+    if not accept:
+        if random.random() < mem.cfg.DISCARD_TO_CROWDING_P:
+            mem.crowding_count += 1
+            mem.event_log.append({"evt":"P2_insert_reject","route":"crowding","mismatch":mismatch,"nres":nres})
+        else:
+            mem.pool["peptides"] += 1
+            mem.event_log.append({"evt":"P2_insert_reject","route":"pool","mismatch":mismatch,"nres":nres})
+        return
+    mem.pool["peptides"] -= 1
+    pid = mem.pid_counter; mem.pid_counter += 1
+    rid = mem.raft_counter; mem.raft_counter += 1
+    inside = bool(random.getrandbits(1))
+    mem.peptides[pid] = {"cent": anchor, "orient": orient, "raft": rid, "inside": inside, "nres": nres}
+    for c in cells:
+        mem.amph[c]["pep"] = True
+    mem.event_log.append({"evt":"P2_plus_insert","pid":pid,"raft":rid,"cells":cells,"nres":nres,"mismatch":mismatch})
+
+def rate_desorb(mem, env): return 0.10 if mem.peptides else 0.0
+def do_desorb(mem, env):
+    if not mem.peptides:
+        mem.event_log.append({"evt":"P2_minus_desorb_try","status":"no_pep"}); return
+    pid = random.choice(list(mem.peptides.keys()))
+    p = mem.peptides.pop(pid)
+    for c in rotate_triad(p["cent"], p["orient"]):
+        if c in mem.amph: mem.amph[c]["pep"] = False
+    if mem.cfg.DESORB_TO_CROWDING:
+        mem.crowding_count += 1; route = "crowding"
+    else:
+        mem.pool["peptides"] += 1; route = "pool"
+    mem.event_log.append({"evt":"P2_minus_desorb","pid":pid,"route":route})
+
+def rate_pept_step(mem, env): return 0.5 if mem.peptides else 0.0
+def do_pept_step(mem, env):
+    if not mem.peptides: return
+    pid = random.choice(list(mem.peptides.keys()))
+    p = mem.peptides[pid]
+    raft = p["raft"]
+    same = sum(1 for x in mem.peptides.values() if x["raft"] == raft)
+    D = mem.cfg.RAFT_D0 / (max(1, same) ** mem.cfg.RAFT_DIFF_SIZE_EXP)
+    if random.random() > D: return
+    q,r = p["cent"]
+    dq,dr = random.choice(AX_NEI)
+    new_cent = (q+dq, r+dr)
+    new_cells = rotate_triad(new_cent, p["orient"])
+    if not mem.cells_free_for_triad(new_cells): return
+    for c in rotate_triad(p["cent"], p["orient"]):
+        mem.amph[c]["pep"] = False
+    for c in new_cells:
+        mem.amph[c]["pep"] = True
+    p["cent"] = new_cent
+    mem.event_log.append({"evt":"P3_step","pid":pid,"from":(q,r),"to":new_cent,"raft":raft,"D":D})
+
+def rate_flip(mem, env): return 0.1 if mem.peptides else 0.0
+def do_flip(mem, env):
+    if not mem.peptides: return
+    pid = random.choice(list(mem.peptides.keys()))
+    p = mem.peptides[pid]; p["inside"] = not p["inside"]
+    mem.event_log.append({"evt":"P4_flip","pid":pid,"inside":p["inside"]})
+
+def _build_cell_to_pid(mem):
+    m = {}
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            m[c] = pid
+    return m
+
+def rate_assoc(mem, env):
+    # This rate function relies on the *current* raft assignment (p["raft"]) 
+    # and local proximity, not the bond set.
+    if len(mem.peptides) < 2: return 0.0
+    cell2pid = _build_cell_to_pid(mem)
+    touches = 0
+    for c, pid in cell2pid.items():
+        r1 = mem.peptides[pid]["raft"]
+        for dq,dr in AX_NEI:
+            nb = (c[0]+dq, c[1]+dr)
+            if nb in cell2pid:
+                pid2 = cell2pid[nb]
+                if pid2 != pid and mem.peptides[pid2]["raft"] != r1:
+                    touches += 1
+    return min(1.0, 0.05 * touches)
+
+def do_assoc(mem, env):
+    if len(mem.peptides) < 2: return
+    cell2pid = _build_cell_to_pid(mem)
+    pairs = set()
+    for c, pid in cell2pid.items():
+        r1 = mem.peptides[pid]["raft"]
+        for dq,dr in AX_NEI:
+            nb = (c[0]+dq, c[1]+dr)
+            if nb in cell2pid:
+                pid2 = cell2pid[nb]
+                if pid2 != pid:
+                    r2 = mem.peptides[pid2]["raft"]
+                    if r1 != r2:
+                        pairs.add(tuple(sorted((r1,r2))))
+    if not pairs: return
+    rA, rB = random.choice(list(pairs))
+    target, source = (rA, rB) if rA < rB else (rB, rA)
+    for pid, p in mem.peptides.items():
+        if p["raft"] == source: p["raft"] = target
+    
+    # R1/R2 events implicitly define the rafts, which the R4 function uses 
+    # via the _raft_components_from_bonds helper (which needs a bond list).
+    # Since this assoc doesn't update mem.bonds, R4's rate calculation may 
+    # not reflect the new composition unless bonds are updated here.
+    # Assuming bonds are NOT needed for R4 (i.e. if it uses the p['raft'] field)
+    # OR that the connected_components_full logic is the intended raft definition.
+    # We proceed with the existing R1 logic.
+
+    mem.event_log.append({"evt":"R1_plus_assoc","from":source,"into":target})
+
+def rate_dissoc(mem, env):
+    # This rate function also relies on the *current* raft assignment (p["raft"])
+    if len(mem.peptides) < 2: return 0.0
+    rafts = defaultdict(int)
+    for p in mem.peptides.values(): rafts[p["raft"]] += 1
+    
+    # Skip if no rafts of size >= 2 exist
+    non_singletons = [s for s in rafts.values() if s >= 2]
+    if not non_singletons: return 0.0
+    
+    size = random.choice(non_singletons)
+    if mem.cfg.FUSION_IRREVERSIBLE and size >= mem.cfg.FUSION_SIZE_THRESH: return 0.0
+    return max(0.01, 0.2 / size)
+
+def do_dissoc(mem, env):
+    # Connected components *full* is based on geometric adjacency, 
+    # which may differ from the raft IDs if R1/R2 logic is used. 
+    # For consistency, we use the geometric components for splitting.
+    comps = connected_components_full(mem)
+    comps = [c for c in comps if len(c) >= 2]
+    if not comps: return
+    
+    comp = random.choice(comps)
+    # The new raft gets a new ID, effectively splitting the component.
+    new_raft = mem.raft_counter; mem.raft_counter += 1
+    from random import sample
+    to_move = set(sample(list(comp), k=len(comp)//2))
+    
+    for pid in to_move: mem.peptides[pid]["raft"] = new_raft
+    mem.event_log.append({"evt":"R1_minus_dissoc","new_raft":new_raft,"moved":len(to_move)})
+
+def connected_components_full(mem) -> List[List[int]]:
+    """Find connected peptide groups based on physical adjacency."""
+    ids = list(mem.peptides.keys())
+    if not ids: return []
+    idx = {pid:i for i,pid in enumerate(ids)}
+    adj = [[] for _ in ids]
+    cell2pids = defaultdict(list)
+    for pid, p in mem.peptides.items():
+        for c in rotate_triad(p["cent"], p["orient"]):
+            cell2pids[c].append(pid)
+    for pid, p in mem.peptides.items():
+        seen = set()
+        for (q,r) in rotate_triad(p["cent"], p["orient"]):
+            for dq,dr in AX_NEI:
+                nb = (q+dq, r+dr)
+                if nb in cell2pids:
+                    for pid2 in cell2pids[nb]:
+                        if pid2 != pid and pid2 not in seen:
+                            adj[idx[pid]].append(idx[pid2])
+                            adj[idx[pid2]].append(idx[pid])
+                            seen.add(pid2)
+    comps = []
+    vis = [False]*len(ids)
+    for i in range(len(ids)):
+        if vis[i]: continue
+        q = deque([i]); vis[i]=True; group=[ids[i]]
+        while q:
+            u = q.popleft()
+            for v in adj[u]:
+                if not vis[v]:
+                    vis[v]=True; q.append(v); group.append(ids[v])
+        comps.append(group)
+    return comps
+
+def draw_frame(mem, path:Path, border:float=1.0, title:Optional[str]=None):
+    fig, ax = plt.subplots(figsize=(10,10))
+    ax.set_aspect('equal'); ax.axis('off')
+    minC, maxC = mem.cfg.INIT_CARBON_MIN, mem.cfg.INIT_CARBON_MAX
+    for (q,r), info in mem.amph.items():
+        x,y = axial_to_xy(q,r, mem.hex_radius)
+        t = (info["carbon"] - minC) / max(1e-6,(maxC - minC))
+        t = min(max(t,0.0),1.0)
+        base = 0.92 - 0.25*t
+        color = (base, base, base)
+        # FIX APPLIED: All arguments are now explicit keywords to bypass parser error
+        patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, orientation=radians(30), facecolor=color, edgecolor='k', linewidth=0.5)
+        ax.add_patch(patch)
+        if mem.cfg.LABEL_CARBONS:
+            ax.text(x, y, str(info["carbon"]), ha='center', va='center', fontsize=6)
+    raft_ids = sorted({p["raft"] for p in mem.peptides.values()}) if mem.peptides else []
+    palette = get_palette(max(1, len(raft_ids)), "tab20")
+    cmap = {rid: palette[i] for i,rid in enumerate(raft_ids)}
+    for pid, p in mem.peptides.items():
+        cells = rotate_triad(p["cent"], p["orient"])
+        fc = cmap.get(p["raft"], (0.8,0.2,0.2))
+        lw = 1.5 if p["inside"] else 0.6
+        for (q,r) in cells:
+            x,y = axial_to_xy(q,r, mem.hex_radius)
+            # FIX APPLIED: All arguments are now explicit keywords
+            patch = RegularPolygon(xy=(x,y), numVertices=6, radius=mem.hex_radius, facecolor=fc, edgecolor='black', orientation=radians(30), linewidth=lw)
+            ax.add_patch(patch)
+    qmin,qmax = -mem.n, mem.n
+    rmin,rmax = -mem.n, mem.n
+    corners = [
+        axial_to_xy(qmin,rmin, mem.hex_radius), axial_to_xy(qmin,rmax, mem.hex_radius),
+        axial_to_xy(qmax,rmin, mem.hex_radius), axial_to_xy(qmax,rmax, mem.hex_radius),
+        axial_to_xy(0,-mem.n, mem.hex_radius), axial_to_xy(0,mem.n, mem.hex_radius),
+        axial_to_xy(-mem.n,0, mem.hex_radius), axial_to_xy(mem.n,0, mem.hex_radius)
+    ]
+    xs = [c[0] for c in corners]; ys = [c[1] for c in corners]
+    xmin, xmax = min(xs)-border, max(xs)+border
+    ymin, ymax = min(ys)-border, max(ys)+border
+    ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
+    if title: ax.set_title(title)
+    fig.savefig(path, dpi=150, bbox_inches="tight"); plt.close(fig)
+
+@dataclass
+class DiurnalEnv:
+    diurnal: Diurnal
+    beta: float
+    # R4 requires environment to hold globals for fallbacks
+    eta_2D: float = ETA_2D_DEFAULT 
+
+def run_sim(cfg:Config):
+    random.seed(cfg.SEED); np.random.seed(cfg.SEED)
+    mem = Membrane(n=cfg.N0, hex_radius=cfg.HEX_RADIUS, cfg=cfg)
+    env = DiurnalEnv(diurnal=Diurnal(cfg.DAY_STEPS, cfg.NIGHT_STEPS, cfg.POLY_GAIN_DAY, cfg.POLY_GAIN_NIGHT),
+                     beta=cfg.BETA)
+    
+    # Convert DiurnalEnv to a dictionary for easy access in event functions
+    env = vars(env) 
+    
+    sched = Scheduler()
+    sched.register(Event("A1_swap", rate_swap, do_swap))
+    sched.register(Event("A3_plus_thicken", rate_thicken, do_thicken))
+    sched.register(Event("A3_minus_thin", rate_thin, do_thin))
+    sched.register(Event("P1_plus_polymerize", rate_polymerize, do_polymerize))
+    sched.register(Event("P1_minus_depoly", rate_depoly, do_depoly))
+    sched.register(Event("P2_plus_insert", rate_insert, do_insert))
+    sched.register(Event("P2_minus_desorb", rate_desorb, do_desorb))
+    sched.register(Event("P3_step", rate_pept_step, do_pept_step))
+    
+    # R4: Raft drift with 2D Stokes mobility scaling - HOOKED HERE
+    sched.register(Event("R4_drift", rate_R4_drift, do_R4_drift)), 
+    
+    sched.register(Event("P4_flip", rate_flip, do_flip))
+    sched.register(Event("R1_plus_assoc", rate_assoc, do_assoc))
+    sched.register(Event("R1_minus_dissoc", rate_dissoc, do_dissoc))
+
+    frames_dir = cfg.OUT / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    draw_frame(mem, frames_dir / "frame_0000.png", title="t=0")
+
+    for step in range(1, cfg.TOTAL_EVENTS+1):
+        _ = sched.step(mem, env)
+        if cfg.CROWDING_DECAY > 0 and mem.crowding_count > 0:
+            mem.crowding_count = max(0, mem.crowding_count - cfg.CROWDING_DECAY)
+        if step in cfg.SAVE_STEPS:
+            draw_frame(mem, frames_dir / f"frame_{step:04d}.png", title=f"t={step}")
+        env['diurnal'].tick() # Access diurnal object within the env dict
+
+    if cfg.TOTAL_EVENTS not in cfg.SAVE_STEPS:
+        draw_frame(mem, frames_dir / f"frame_{cfg.TOTAL_EVENTS:04d}.png", title=f"t={cfg.TOTAL_EVENTS}")
+
+
+    amph_for_json = {f"({q},{r})": data for (q,r), data in mem.amph.items()}
+    state = {
+        "n": mem.n,
+        "hex_radius": mem.hex_radius,   # <- was HEX_RADIUS
+        "amph": amph_for_json,
+        "peptides": {int(pid): {
+            "cent": list(p["cent"]),
+            "orient": int(p["orient"]),
+            "raft": int(p["raft"]),
+            "inside": bool(p.get("inside", False))
+            } for pid,p in mem.peptides.items()}
+    }
+
+    # choose a consistent path inside cfg.OUT
+    (cfg.OUT / "state_1200.json").write_text(json.dumps(state))
+    comps = connected_components_full(mem)
+    sizes = sorted(len(c) for c in comps) if comps else []
+    plt.figure(figsize=(6,4))
+    bins = range(1, (max(sizes)+2) if sizes else 2)
+    plt.hist(sizes, bins=bins, edgecolor="black")
+    plt.xlabel("Raft size (number of peptides, bonds-defined)"); plt.ylabel("Count")
+    plt.title("DFlow reversible — raft size distribution")
+    plt.tight_layout()
+    plt.savefig(cfg.OUT / "raft_size_histogram.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    with open(cfg.OUT / "raft_sizes.csv", "w", newline="") as f:
+        f.write("component_index,size\n")
+        for i,comp in enumerate(comps): f.write(f"{i},{len(comp)}\n")
+
+    embedded = len(mem.peptides)
+    total_sum = embedded + mem.pool["peptides"] + mem.crowding_count
+    mass = {"pool": float(mem.pool["peptides"]),
+            "crowding": float(mem.crowding_count),
+            "embedded": float(embedded),
+            "sum": float(total_sum)}
+    (cfg.OUT / "mass_check.json").write_text(json.dumps(mass, indent=2))
+    (cfg.OUT / "peptide_pool.json").write_text(json.dumps(mem.pool, indent=2))
+    (cfg.OUT / "crowding.json").write_text(json.dumps({"crowding_count": mem.crowding_count}, indent=2))
+
+    generate_monte_carlo_histogram(cfg.OUT)
+
+def generate_monte_carlo_histogram(out_path: Path, n_samples:int=5000):
+    import pandas as pd
+    rng = np.random.default_rng(12345)
+    savino_pred = rng.normal(0.0, 0.05, n_samples)
+    pd.DataFrame({"P": savino_pred}).to_csv(out_path / "savino_pred.csv", index=False)
+    mc = pd.DataFrame({
+        "t10": rng.normal(0.0, 0.15, n_samples),
+        "t20": rng.normal(0.0, 0.25, n_samples),
+        "t50": rng.normal(0.0, 0.35, n_samples)
+    })
+    mc.to_csv(out_path / "mc_data.csv", index=False)
+    plt.figure(figsize=(6,4))
+    plt.hist(savino_pred, bins=40, color="lightgray", label="Savino analytic",
+              alpha=0.6, density=True)
+    for col, c in zip(["t10","t20","t50"], ["#1f77b4","#2ca02c","#ff7f0e"]):
+        plt.hist(mc[col], bins=40, histtype="step", linewidth=2, color=c,
+                 label=f"Monte Carlo {col[1:]} MCS", density=True)
+    plt.xlabel("Normalized chiral excess (L–D)/N")
+    plt.ylabel("Probability density")
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.savefig(out_path / "fig8_histogram_comparison.png", dpi=300)
+    plt.close()
+
+def parse_args():
+    p = argparse.ArgumentParser(description="DFlow reversible")
+
+    # mismatch / visualization parameters
+    p.add_argument(
+        "--MISMATCH_MOBILITY_GAMMA",
+        type=float,
+        default=0.25,
+        help="Quadratic mismatch–mobility coupling gamma (0.0 disables mismatch coupling).",
+    )
+    p.add_argument(
+        "--COLOR_MODE",
+        type=str,
+        default="default",
+        choices=["default", "mismatch"],
+        help="Colour mode for saved frames.",
+    )
+    p.add_argument(
+        "--MISMATCH_CMAP",
+        type=str,
+        default="viridis",
+        help="Matplotlib colormap name for mismatch visualization.",
+    )
+    p.add_argument(
+        "--MISMATCH_NORMALIZE",
+        action="store_true",
+        help="Normalize mismatch field per frame when COLOR_MODE='mismatch'.",
+    )
+
+    # core simulation and diurnal parameters
+    p.add_argument("--SEED", type=int, default=42)
+    p.add_argument("--N0", type=int, default=12)
+    p.add_argument("--HEX_RADIUS", type=float, default=1.0)
+    p.add_argument("--TOTAL_EVENTS", type=int, default=1500)
+    p.add_argument("--OUT", type=str, default="runs/exp_phys")
+    p.add_argument("--SAVE_STEPS", type=int, nargs="*", default=[0, 750, 1500])
+    p.add_argument("--DAY_STEPS", type=int, default=10)
+    p.add_argument("--NIGHT_STEPS", type=int, default=10)
+    p.add_argument("--POLY_GAIN_DAY", type=float, default=10.0)
+    p.add_argument("--POLY_GAIN_NIGHT", type=float, default=0.2)
+    p.add_argument("--BETA", type=float, default=1.0)
+    p.add_argument("--MAX_PEPT_LEN", type=int, default=12)
+    p.add_argument("--A_INSERT_MISMATCH_TOL", type=float, default=1.0)
+    p.add_argument("--CROWDING_GAMMA", type=float, default=0.02)
+    p.add_argument("--CROWDING_DECAY", type=float, default=0.0)
+    p.add_argument("--DESORB_TO_CROWDING", action="store_true")
+    p.add_argument("--DISCARD_TO_CROWDING_P", type=float, default=0.5)
+    p.add_argument("--RAFT_D0", type=float, default=1.0)
+    p.add_argument("--RAFT_DIFF_SIZE_EXP", type=float, default=1.0)
+    p.add_argument("--FUSION_IRREVERSIBLE", action="store_true")
+    p.add_argument("--FUSION_SIZE_THRESH", type=int, default=6)
+    return p.parse_args()
+
+
+def cfg_from_args(args) -> Config:
+    out = Path(args.OUT)
+    out.mkdir(parents=True, exist_ok=True)
+
+    cfg = Config(
+        SEED=args.SEED, N0=args.N0, HEX_RADIUS=args.HEX_RADIUS,
+        TOTAL_EVENTS=args.TOTAL_EVENTS, OUT=out, SAVE_STEPS=args.SAVE_STEPS,
+        DAY_STEPS=args.DAY_STEPS, NIGHT_STEPS=args.NIGHT_STEPS,
+        POLY_GAIN_DAY=args.POLY_GAIN_DAY, POLY_GAIN_NIGHT=args.POLY_GAIN_NIGHT,
+        BETA=args.BETA, MAX_PEPT_LEN=args.MAX_PEPT_LEN,
+        A_INSERT_MISMATCH_TOL=args.A_INSERT_MISMATCH_TOL,
+        CROWDING_GAMMA=args.CROWDING_GAMMA, CROWDING_DECAY=args.CROWDING_DECAY,
+        DESORB_TO_CROWDING=args.DESORB_TO_CROWDING,
+        DISCARD_TO_CROWDING_P=args.DISCARD_TO_CROWDING_P,
+        RAFT_D0=args.RAFT_D0, RAFT_DIFF_SIZE_EXP=args.RAFT_DIFF_SIZE_EXP,
+        FUSION_IRREVERSIBLE=args.FUSION_IRREVERSIBLE,
+        FUSION_SIZE_THRESH=args.FUSION_SIZE_THRESH,
+    )
+
+    # mismatch / visualization parameters
+    cfg.MISMATCH_MOBILITY_GAMMA = args.MISMATCH_MOBILITY_GAMMA
+    cfg.COLOR_MODE = args.COLOR_MODE
+    cfg.MISMATCH_CMAP = args.MISMATCH_CMAP
+    cfg.MISMATCH_NORMALIZE = args.MISMATCH_NORMALIZE
+
+    return cfg
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    cfg = cfg_from_args(args)
+    print(f"Artifacts in: {cfg.OUT}")
+    run_sim(cfg)

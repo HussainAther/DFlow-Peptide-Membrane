@@ -1,0 +1,12 @@
+{
+  "SEED": 42,
+  "N0": 12,
+  "HEX_RADIUS": 1.0,
+  "TOTAL_EVENTS": 1000,
+  "OUT_DIR": "/mnt/data/dflow/runs/exp_0001",
+  "SAVE_STEPS": [
+    0,
+    500,
+    1000
+  ]
+}

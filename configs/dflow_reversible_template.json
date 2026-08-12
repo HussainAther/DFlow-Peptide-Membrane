@@ -1,0 +1,20 @@
+{
+  "//": "Template config for reversible, diurnal DFlow runs",
+  "N0": 12,
+  "TOTAL_EVENTS": 20000,
+  "DAY_STEPS": 12,
+  "NIGHT_STEPS": 12,
+  "POLY_GAIN_DAY": 8.0,
+  "POLY_GAIN_NIGHT": 0.25,
+  "BETA": 1.0,
+
+  "//_mismatch": "Hydrophobic mismatch mobility coupling",
+  "MISMATCH_MOBILITY_GAMMA": 0.25,
+
+  "//_viz": "Frame rendering options",
+  "COLOR_MODE": "default",          // 'default' | 'mismatch'
+  "MISMATCH_CMAP": "viridis",
+  "MISMATCH_NORMALIZE": true,       // normalize mismatch field per frame
+  "SAVE_FRAMES": true,
+  "SAVE_MISMATCH_FRAMES": false     // flip to true for mismatch movies
+}

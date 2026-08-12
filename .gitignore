@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*~
+
+# Generated simulation and analysis output
+runs/
+data/
+frames/
+output/
+outputs/
+*.gro
+*.xtc
+*.trr
+*.edr
+*.tpr
+*.log
+
+# Local research material and manuscript exports
+papers/
+manuscripts/
+references/
+*.doc
+*.docx
+*.pdf
+*.ppt
+*.pptx
+
+# Backups and archives
+*.bak
+*.zip
+#*#
+* copy.*
